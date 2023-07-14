@@ -48,22 +48,21 @@ class MultiRail:
 
         returns the spawn action that's been taken, can be -2, 0, 1, 2 but not -1
         """
-        head_delete = []
-        tail_delete = []
+        all_deleted = []
         dis2head = np.sum((self.head.base_pos[:2] - drone_xy) ** 2) ** 0.5
         dis2tail = np.sum((self.tail.base_pos[:2] - drone_xy) ** 2) ** 0.5
 
         # delete the head if it's too far and get the new one
         if dis2head > 20:
-            head_delete, self.head = self.head.delete(0)
+            deleted, self.head = self.head.delete(0)
+            all_deleted = all_deleted + deleted
 
         # if the tail is too far away, just delete it
         if dis2tail > 100:
-            tail_delete, self.tail = self.tail.delete(1)
+            deleted, self.tail = self.tail.delete(1)
+            all_deleted = all_deleted + deleted
 
-        self.Ids = [
-            i for i in self.Ids if (i not in head_delete and i not in tail_delete)
-        ]
+        self.Ids = [i for i in self.Ids if i not in all_deleted]
 
         # if there is no need to spawn more, just return
         if direction == -2:
@@ -75,7 +74,7 @@ class MultiRail:
             direction = np.random.randint(0, 3) if direction == -1 else direction
 
             # spawn a new tail
-            self.tail.add_child(direction)
+            self.tail.add_child(self.visual_ids, self.collision_ids, direction)
             self.tail = self.tail.get_end(1)
             self.Ids.append(self.tail.Id)
 
@@ -105,8 +104,6 @@ class SingleRail:
         parent: SingleRail | None,
     ):
         self.p = p
-        self.visual_ids = visual_ids.copy()
-        self.collision_ids = collision_ids.copy()
 
         # values are obtained from the readme in the rails models folder
         ROT = 0.1 * math.pi
@@ -168,14 +165,14 @@ class SingleRail:
         self.linked: list[SingleRail | None] = [None, None]
         self.linked[0] = parent
 
-    def add_child(self, spawn_id):
+    def add_child(self, visual_ids, collision_ids, spawn_id):
         """adds a single child to the end of the rail"""
         self.linked[1] = SingleRail(
             p=self.p,
             start_pos=self.end_pos,
             start_orn=self.end_orn,
-            visual_ids=self.visual_ids,
-            collision_ids=self.collision_ids,
+            visual_ids=visual_ids,
+            collision_ids=collision_ids,
             spawn_id=spawn_id,
             parent=self,
         )

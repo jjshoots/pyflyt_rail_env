@@ -305,14 +305,14 @@ class Environment(gymnasium.Env):
 
         # clutter meshes
         self.clutter_mesh = np.ones(3)
-        self.clutter_mesh[0] *= obj_visual(self.aviary, self.clutter_dir + "tunnel.obj")
+        self.clutter_mesh[0] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
         self.clutter_mesh[1] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
         self.clutter_mesh[2] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
 
         # collision meshes for the clutter
         self.clutter_collision_mesh = np.ones(3)
         self.clutter_collision_mesh[0] *= obj_collision(
-            self.aviary, self.clutter_dir + "tunnel.obj"
+            self.aviary, self.clutter_dir + "empty.obj"
         )
         self.clutter_collision_mesh[1] *= obj_collision(
             self.aviary, self.clutter_dir + "empty.obj"
