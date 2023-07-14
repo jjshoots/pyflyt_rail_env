@@ -12,7 +12,7 @@ from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
 from PyFlyt.core.load_objs import obj_visual
 
-from .railObject import MultiRail
+from .MultiRail import MultiRail
 
 
 class Environment(gymnasium.Env):
@@ -191,13 +191,15 @@ class Environment(gymnasium.Env):
         # get the relevant states
         raw_state = self.aviary.state(0)
         ang_vel = raw_state[0]
+        ang_vel = raw_state[0]
         lin_vel = raw_state[2]
 
         # combine everything
         self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
 
         # grab the image
-        self.seg_img = np.moveaxis(self.drone.segImg, -1, 0)
+        track_image = np.isin(np.moveaxis(self.drone.segImg, -1, 0), self.rails[0].Ids)
+        self.state["seg_img"] = np.concatenate([track_image], axis=0)
         self.state["rgba_img"] = np.moveaxis(self.drone.rgbaImg.astype(np.uint8), -1, 0)
 
     def compute_term_trunc_reward(self):
@@ -244,13 +246,13 @@ class Environment(gymnasium.Env):
         I have mostly no idea what's going on here.
         But this returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
-        # get the rail image of the main rail (rails[0])
-        railImg = np.isin(self.seg_img, self.rails[0].Ids)
-
         # ensure that there is a sufficient number of points to run polyfit
-        if np.sum(railImg) > self.seg_img.shape[1]:
+        if np.sum(self.state["seg_img"]) > self.camera_resolution[0]:
             # get the coordinates of points of the track under the drone
-            proj = self.inv_proj[railImg.flatten()] * self.drone.state[-1][-1]
+            proj = (
+                self.inv_proj[self.state["seg_img"].flatten()]
+                * self.drone.state[-1][-1]
+            )
 
             # fit a second order polynomial to the projection
             poly = polynomial.Polynomial.fit(proj[:, 1], proj[:, 0], 2).convert(

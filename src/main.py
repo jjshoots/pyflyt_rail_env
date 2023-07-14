@@ -8,10 +8,6 @@ obs, _ = env.reset()
 action = np.zeros(*env.action_space.shape)
 
 while True:
-
-    # print(env.hidden_state["seg_img"].max())
-    # print(env.hidden_state["seg_img"].min())
-    # exit()
     track_position = env.track_state()
 
     action[0] = 3.0
