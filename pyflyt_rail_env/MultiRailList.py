@@ -43,7 +43,7 @@ class Rail:
                 direction=0,
             )
         )
-        self.rail_ids = np.ndarray([self.rails[0].Id], dtype=np.int32)
+        self.rail_ids = np.array([self.rails[0].Id], dtype=np.int32)
 
     @property
     def head(self) -> SingleRail:
@@ -84,8 +84,11 @@ class Rail:
 
         # if the head is too far, delete
         if head_distance > 20:
-            self.rails.pop(0)
+            self.p.removeBody(self.rail_ids[0])
+            for i in self.rails[0].clutter_ids:
+                self.p.removeBody(i)
             self.rail_ids = self.rail_ids[1:]
+            self.rails.pop(0)
 
         # if the tail is too near, add a new one
         if tail_distance < 40:
