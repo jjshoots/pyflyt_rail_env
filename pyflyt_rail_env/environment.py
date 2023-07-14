@@ -27,9 +27,10 @@ class Environment(gymnasium.Env):
         max_duration_seconds: int = 10000000,
         agent_hz: int = 30,
         render_mode: None | str = None,
+        spawn_height: float = 1.0,
         camera_resolution: tuple[int, int] = (64, 64),
-        camera_FOV_degrees: int = 90,
-        camera_angle_degrees: int = 45,
+        camera_FOV_degrees: int = 145,
+        camera_angle_degrees: int = 70,
         update_textures_step: int = 240,
     ):
         """__init__.
@@ -39,6 +40,7 @@ class Environment(gymnasium.Env):
             angle_representation (str): angle_representation
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
+            spawn_height (float): spawn_height
             camera_resolution (tuple[int, int]): camera_resolution
             camera_FOV_degrees (int): camera_FOV_degrees
             camera_angle_degrees (int): camera_angle_degrees
@@ -75,6 +77,7 @@ class Environment(gymnasium.Env):
         )
 
         """ ENVIRONMENT CONSTANTS """
+        self.spawn_height = spawn_height
         self.camera_resolution = camera_resolution
         self.camera_FOV_degrees = camera_FOV_degrees
         self.camera_angle_degrees = camera_angle_degrees
@@ -92,8 +95,8 @@ class Environment(gymnasium.Env):
         a_array *= rpp
         a_array[:, :, 1] += self.camera_angle_degrees / 180.0 * math.pi
         a_array = a_array.reshape(-1, 2)
-        y = np.sin(a_array[:, 1]) / abs(np.cos(a_array[:, 1]))
         x = np.tan(a_array[:, 0]) / abs(np.cos(a_array[:, 1]))
+        y = np.sin(a_array[:, 1]) / abs(np.cos(a_array[:, 1]))
         self.inv_proj = np.stack((x, y), axis=-1)
 
         # where the model files are located
@@ -135,7 +138,7 @@ class Environment(gymnasium.Env):
         drone_options["camera_resolution"] = self.camera_resolution
         drone_options["camera_FOV_degrees"] = self.camera_FOV_degrees
         drone_options["camera_angle_degrees"] = -self.camera_angle_degrees
-        start_pos = np.array([[0.0, 0.0, 2.0]])
+        start_pos = np.array([[1.0, 0.0, self.spawn_height]])
         start_orn = np.array([[0.0, 0.0, 0.0]])
         self.aviary = Aviary(
             start_pos=start_pos,
@@ -261,6 +264,7 @@ class Environment(gymnasium.Env):
             pos = polynomial.polyval(1.0, [*poly])
             orn = math.atan(polynomial.polyval(1.0, [*poly.deriv()]))
 
+            # import matplotlib.pyplot as plt
             # plt.scatter(proj[:, 1], proj[:, 0])
             # plt.plot(*poly.linspace(n=100, domain=(0, np.max(proj[:, 1]))), "y")
             # plt.show()

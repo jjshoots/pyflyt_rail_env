@@ -60,8 +60,7 @@ class MultiRail:
         # create new tail if it's too near if allowed
         if dis2tail < 40:
             # if don't have spawn direction, just random
-            # direction = np.random.randint(0, 3) if direction == -1 else direction
-            direction = 2
+            direction = np.random.randint(0, 3) if direction == -1 else direction
 
             # spawn a new tail
             self.tail.add_child(self.rail_mesh_ids, direction)
