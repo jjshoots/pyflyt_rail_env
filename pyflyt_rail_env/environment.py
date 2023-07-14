@@ -103,8 +103,8 @@ class Environment(gymnasium.Env):
         self.rails_dir: str = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "../models/rails/"
         )
-        self.plants_dir: str = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "../models/plants/"
+        self.clutter_dir: str = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "../models/clutter/"
         )
         tex_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "../models/textures/images/"
@@ -160,10 +160,24 @@ class Environment(gymnasium.Env):
         self.rails = []
         start_pos = np.array([0, 0, 0])
         start_orn = np.array([0.5 * math.pi, 0, -0.5 * math.pi])
-        self.rails.append(MultiRail(self.aviary, start_pos, start_orn, self.rail_mesh))
+        self.rails.append(
+            MultiRail(
+                p=self.aviary,
+                start_pos=start_pos,
+                start_orn=start_orn,
+                rail_mesh_ids=self.rail_mesh,
+            )
+        )
 
         # bootstrap off the RailObject to spawn clutter
-        self.clutter = MultiRail(self.aviary, start_pos, start_orn, self.clutter_mesh)
+        self.clutter = MultiRail(
+            p=self.aviary,
+            start_pos=start_pos,
+            start_orn=start_orn,
+            rail_mesh_ids=self.clutter_mesh,
+            pos_center=np.array([0.0, 3, 0.0]),
+            orn_center=np.array([0.0, 0.0, 0.0]),
+        )
 
         # update all textures
         self.update_textures()
@@ -292,7 +306,9 @@ class Environment(gymnasium.Env):
 
         # grass meshes
         self.clutter_mesh = np.ones(3)
-        self.clutter_mesh *= obj_visual(self.aviary, self.plants_dir + "empty.obj")
+        self.clutter_mesh[0] *= obj_visual(self.aviary, self.clutter_dir + "tunnel.obj")
+        self.clutter_mesh[1] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
+        self.clutter_mesh[2] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
 
     def update_textures(self):
         """

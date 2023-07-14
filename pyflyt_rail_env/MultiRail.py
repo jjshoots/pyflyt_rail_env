@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 
 import numpy as np
@@ -12,13 +14,24 @@ class MultiRail:
         start_pos: np.ndarray,
         start_orn: np.ndarray,
         rail_mesh_ids: np.ndarray,
+        pos_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
+        orn_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
     ):
         self.p = p
         self.rail_mesh_ids = rail_mesh_ids
+
+        rail = SingleRail(
+            p=p,
+            start_pos=start_pos,
+            start_orn=start_orn,
+            rail_mesh_ids=rail_mesh_ids,
+            spawn_id=0,
+            parent=None,
+            pos_center=pos_center,
+            orn_center=orn_center,
+        )
+
         self.tex_id = None
-
-        rail = SingleRail(p, start_pos, start_orn, self.rail_mesh_ids, 0)
-
         self.Ids = [rail.Id]
         self.head = rail.get_end(0)
         self.tail = rail.get_end(1)
@@ -89,9 +102,13 @@ class SingleRail:
         start_orn: np.ndarray,
         rail_mesh_ids: np.ndarray,
         spawn_id: int,
-        parent=None,
+        parent: SingleRail | None,
+        pos_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
+        orn_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
     ):
         self.p = p
+        self.pos_center = pos_center
+        self.orn_center = orn_center
 
         # values are obtained from the readme in the rails models folder
         ROT = 0.1 * math.pi
@@ -144,8 +161,10 @@ class SingleRail:
         self.Id = loadOBJ(
             self.p,
             visualId=rail_mesh_ids[spawn_id],
-            basePosition=self.base_pos,
-            baseOrientation=self.p.getQuaternionFromEuler(self.base_orn),
+            basePosition=self.base_pos + self.pos_center,
+            baseOrientation=self.p.getQuaternionFromEuler(
+                self.base_orn + self.orn_center
+            ),
         )
 
         # linked = [parent, child]
@@ -155,7 +174,14 @@ class SingleRail:
     def add_child(self, rail_mesh_ids, spawn_id):
         """adds a single child to the end of the rail"""
         self.linked[1] = SingleRail(
-            self.p, self.end_pos, self.end_orn, rail_mesh_ids, spawn_id, self
+            p=self.p,
+            start_pos=self.end_pos,
+            start_orn=self.end_orn,
+            rail_mesh_ids=rail_mesh_ids,
+            spawn_id=spawn_id,
+            parent=self,
+            pos_center=self.pos_center,
+            orn_center=self.orn_center,
         )
 
     def delete(self, direction: int):

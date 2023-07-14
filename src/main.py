@@ -1,13 +1,12 @@
+import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
 from pyflyt_rail_env import Environment
 
-import cv2
-
-# env = Environment(render_mode="human")
-env = Environment(render_mode=None)
+env = Environment(render_mode="human")
+# env = Environment(render_mode=None)
 
 obs, _ = env.reset()
 action = np.zeros(*env.action_space.shape)
@@ -23,9 +22,9 @@ for i in range(9999999):
 
     obs, rew, term, trunc, info = env.step(action)
 
-    img = np.transpose(obs["rgba_img"], axes=(1, 2, 0))
-    cv2.imshow("something", img)
-    cv2.waitKey(1)
+    # img = np.transpose(obs["rgba_img"], axes=(1, 2, 0))
+    # cv2.imshow("something", img)
+    # cv2.waitKey(1)
 
     if term or trunc:
         env.close()
