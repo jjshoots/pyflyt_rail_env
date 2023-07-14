@@ -13,6 +13,7 @@ from PyFlyt.core.aviary import Aviary
 from PyFlyt.core.load_objs import obj_collision, obj_visual
 
 from .MultiRail import MultiRail
+from .MultiRailList import Rail
 
 
 class Environment(gymnasium.Env):
@@ -138,7 +139,7 @@ class Environment(gymnasium.Env):
         drone_options["camera_resolution"] = self.camera_resolution
         drone_options["camera_FOV_degrees"] = self.camera_FOV_degrees
         drone_options["camera_angle_degrees"] = -self.camera_angle_degrees
-        start_pos = np.array([[1.0, 0.0, self.spawn_height]])
+        start_pos = np.array([[-1.0, 0.0, self.spawn_height]])
         start_orn = np.array([[0.0, 0.0, 0.0]])
         self.aviary = Aviary(
             start_pos=start_pos,
@@ -157,25 +158,16 @@ class Environment(gymnasium.Env):
         self.initialize_common_meshes()
 
         # start rails, the first rail in the list is the main rail to follow
-        self.rails = []
+        self.rails: list[Rail] = []
         start_pos = np.array([0, 0, 0])
         start_orn = np.array([0.5 * math.pi, 0, -0.5 * math.pi])
         self.rails.append(
-            MultiRail(
+            Rail(
                 p=self.aviary,
                 start_pos=start_pos,
                 start_orn=start_orn,
                 visual_ids=self.rail_mesh,
             )
-        )
-
-        # bootstrap off the RailObject to spawn clutter
-        self.clutter = MultiRail(
-            p=self.aviary,
-            start_pos=start_pos,
-            start_orn=start_orn,
-            visual_ids=self.clutter_mesh,
-            collision_ids=self.clutter_collision_mesh,
         )
 
         # update all textures
@@ -214,7 +206,7 @@ class Environment(gymnasium.Env):
         self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
 
         # grab the image
-        track_image = np.isin(np.moveaxis(self.drone.segImg, -1, 0), self.rails[0].Ids)
+        track_image = np.isin(np.moveaxis(self.drone.segImg, -1, 0), self.rails[0].rail_ids)
         self.state["seg_img"] = np.concatenate([track_image], axis=0)
         self.state["rgba_img"] = np.moveaxis(self.drone.rgbaImg.astype(np.uint8), -1, 0)
 
@@ -241,8 +233,14 @@ class Environment(gymnasium.Env):
             self.aviary.step()
 
         # handle the rails and clutter
-        spawn_direction = self.rails[0].handle_rail_bounds(self.drone.state[-1][:2])
-        self.clutter.handle_rail_bounds(self.drone.state[-1][:2], spawn_direction)
+        spawn_direction = self.rails[0].handle_rail_bounds(self.drone.state[-1])
+        if spawn_direction == 0:
+            self.rails[0].tail.add_clutter(
+                self.tunnel_visual,
+                self.tunnel_collision,
+                np.array([0, 10.125, 0]),
+                np.array([0, 0, 0]),
+            )
 
         # change the texture of the floor
         if self.step_count % self.update_textures_step == 1:
@@ -304,21 +302,11 @@ class Environment(gymnasium.Env):
         )
 
         # clutter meshes
-        self.clutter_mesh = np.ones(3)
-        self.clutter_mesh[0] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
-        self.clutter_mesh[1] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
-        self.clutter_mesh[2] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
+        self.tunnel_visual = obj_visual(self.aviary, self.clutter_dir + "tunnel.obj")
 
         # collision meshes for the clutter
-        self.clutter_collision_mesh = np.ones(3)
-        self.clutter_collision_mesh[0] *= obj_collision(
-            self.aviary, self.clutter_dir + "empty.obj"
-        )
-        self.clutter_collision_mesh[1] *= obj_collision(
-            self.aviary, self.clutter_dir + "empty.obj"
-        )
-        self.clutter_collision_mesh[2] *= obj_collision(
-            self.aviary, self.clutter_dir + "empty.obj"
+        self.tunnel_collision = obj_collision(
+            self.aviary, self.clutter_dir + "tunnel.obj", concave=True
         )
 
     def update_textures(self):
@@ -333,44 +321,47 @@ class Environment(gymnasium.Env):
         chance = np.random.randint(4)
 
         if chance == 0:
-            # rail same as floor, clutter diff
+            # rail and floor same, clutter diff
             tex_id = self.get_random_texture()
             for rail in self.rails:
-                rail.change_texture(tex_id)
+                rail.change_rail_texture(tex_id)
             self.aviary.changeVisualShape(
                 self.aviary.planeId, -1, textureUniqueId=tex_id
             )
 
             tex_id = self.get_random_texture()
-            self.clutter.change_texture(tex_id)
+            for rail in self.rails:
+                rail.change_clutter_texture(tex_id)
         elif chance == 1:
-            # rail same as clutter, floor diff
+            # clutter and floor same, rail diff
             tex_id = self.get_random_texture()
             for rail in self.rails:
-                rail.change_texture(tex_id)
-            self.clutter.change_texture(tex_id)
-
-            tex_id = self.get_random_texture()
+                rail.change_clutter_texture(tex_id)
             self.aviary.changeVisualShape(
                 self.aviary.planeId, -1, textureUniqueId=tex_id
             )
+
+            tex_id = self.get_random_texture()
+            for rail in self.rails:
+                rail.change_rail_texture(tex_id)
         elif chance == 2:
             # all same
             tex_id = self.get_random_texture()
             for rail in self.rails:
-                rail.change_texture(tex_id)
-            self.clutter.change_texture(tex_id)
+                rail.change_rail_texture(tex_id)
+                rail.change_clutter_texture(tex_id)
             self.aviary.changeVisualShape(
                 self.aviary.planeId, -1, textureUniqueId=tex_id
             )
         else:
-            # all diff
+            # all same
             tex_id = self.get_random_texture()
             for rail in self.rails:
-                rail.change_texture(tex_id)
+                rail.change_rail_texture(tex_id)
 
             tex_id = self.get_random_texture()
-            self.clutter.change_texture(tex_id)
+            for rail in self.rails:
+                rail.change_clutter_texture(tex_id)
 
             tex_id = self.get_random_texture()
             self.aviary.changeVisualShape(

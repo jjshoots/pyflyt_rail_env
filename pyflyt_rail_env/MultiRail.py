@@ -54,12 +54,12 @@ class MultiRail:
 
         # delete the head if it's too far and get the new one
         if dis2head > 20:
-            deleted, self.head = self.head.delete(0)
+            deleted, self.head = self.head.truncate(0)
             all_deleted = all_deleted + deleted
 
         # if the tail is too far away, just delete it
         if dis2tail > 100:
-            deleted, self.tail = self.tail.delete(1)
+            deleted, self.tail = self.tail.truncate(1)
             all_deleted = all_deleted + deleted
 
         self.Ids = [i for i in self.Ids if i not in all_deleted]
@@ -72,6 +72,7 @@ class MultiRail:
         if dis2tail < 40:
             # if don't have spawn direction, just random
             direction = np.random.randint(0, 3) if direction == -1 else direction
+            direction = 0
 
             # spawn a new tail
             self.tail.add_child(self.visual_ids, self.collision_ids, direction)
@@ -121,10 +122,10 @@ class SingleRail:
             self.base_pos = self.start_pos + end_offset
             self.base_orn = self.start_orn
         elif spawn_id == 1:
-            end_offset = np.matmul(rot_mat, np.array([-2.209, 20.186]))
-            end_offset = np.array([*end_offset, 0.0])
             base_offset = np.matmul(rot_mat, np.array([0.0, 10.061]))
             base_offset = np.array([*base_offset, 0.0])
+            end_offset = np.matmul(rot_mat, np.array([-2.209, 20.186]))
+            end_offset = np.array([*end_offset, 0.0])
 
             self.start_pos = start_pos
             self.start_orn = start_orn
@@ -133,10 +134,10 @@ class SingleRail:
             self.base_pos = self.start_pos + base_offset
             self.base_orn = self.start_orn
         elif spawn_id == 2:
-            end_offset = np.matmul(rot_mat, np.array([2.209, 20.186]))
-            end_offset = np.array([*end_offset, 0.0])
             base_offset = np.matmul(rot_mat, np.array([0.0, 10.061]))
             base_offset = np.array([*base_offset, 0.0])
+            end_offset = np.matmul(rot_mat, np.array([2.209, 20.186]))
+            end_offset = np.array([*end_offset, 0.0])
 
             self.start_pos = start_pos
             self.start_orn = start_orn
@@ -162,10 +163,20 @@ class SingleRail:
         )
 
         # linked = [parent, child]
-        self.linked: list[SingleRail | None] = [None, None]
-        self.linked[0] = parent
+        self.linked: list[SingleRail | None] = [parent, None]
+        self.clutter: list[Clutter] = []
 
-    def add_child(self, visual_ids, collision_ids, spawn_id):
+    def get_end(self, direction: int):
+        """gets the end of the track, depending on dir, 0 for parent, 1 for child"""
+        node = self
+        while node.linked[direction] is not None:
+            node = node.linked[direction]
+
+        return node
+
+    def add_child(
+        self, visual_ids: np.ndarray, collision_ids: np.ndarray, spawn_id: int
+    ):
         """adds a single child to the end of the rail"""
         self.linked[1] = SingleRail(
             p=self.p,
@@ -177,7 +188,27 @@ class SingleRail:
             parent=self,
         )
 
-    def delete(self, direction: int):
+    def add_clutter(
+        self,
+        visual_id: int,
+        collision_id: int,
+        pos_offset: np.ndarray,
+        orn_offset: np.ndarray,
+    ):
+        """adds a single child to the end of the rail"""
+        self.clutter.append(
+            Clutter(
+                p=self.p,
+                start_pos=self.base_pos,
+                start_orn=self.base_orn,
+                visual_id=visual_id,
+                collision_id=collision_id,
+                pos_offset=pos_offset,
+                orn_offset=orn_offset,
+            )
+        )
+
+    def truncate(self, direction: int):
         """
         deletes self and all connected links in direction, 0 for parent, 1 for child.
         <-- 0, 1 -->
@@ -199,20 +230,46 @@ class SingleRail:
             if node.Id == self.linked[1 - direction].Id:
                 break
 
-            # delete the node model and record the deletion
-            # then move up the chain by a step and dereference
+            # delete the node model and all related clutter
             self.p.removeBody(node.Id)
+            for i in node.clutter:
+                self.p.removeBody(i)
+
+            # record the deletion
             deleted.append(node.Id)
+
+            # then move up the chain by a step and dereference
             node = node.linked[1 - direction]
             node.linked[direction] = None
 
         # return list of deletions, and the opposite node
         return deleted, node
 
-    def get_end(self, direction: int):
-        """gets the end of the track, depending on dir, 0 for parent, 1 for child"""
-        node = self
-        while node.linked[direction] is not None:
-            node = node.linked[direction]
 
-        return node
+class Clutter:
+    def __init__(
+        self,
+        p: bullet_client.BulletClient,
+        start_pos: np.ndarray,
+        start_orn: np.ndarray,
+        visual_id: int,
+        collision_id: int,
+        pos_offset: np.ndarray,
+        orn_offset: np.ndarray,
+    ):
+        p = p
+
+        # funky transforms
+        c, s = np.cos(-start_orn[-1]), np.sin(-start_orn[-1])
+        rot_mat = np.array([[c, -s], [s, c]]).T
+        base_pos = start_pos + np.array(
+            [*np.matmul(rot_mat, pos_offset[:2]), pos_offset[-1]]
+        )
+
+        self.Id = loadOBJ(
+            p,
+            visualId=visual_id,
+            collisionId=collision_id,
+            basePosition=base_pos,
+            baseOrientation=p.getQuaternionFromEuler(start_orn + orn_offset),
+        )
