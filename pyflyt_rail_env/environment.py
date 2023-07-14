@@ -10,7 +10,7 @@ import numpy as np
 import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
-from PyFlyt.core.load_objs import obj_visual
+from PyFlyt.core.load_objs import obj_collision, obj_visual
 
 from .MultiRail import MultiRail
 
@@ -165,7 +165,7 @@ class Environment(gymnasium.Env):
                 p=self.aviary,
                 start_pos=start_pos,
                 start_orn=start_orn,
-                rail_mesh_ids=self.rail_mesh,
+                visual_ids=self.rail_mesh,
             )
         )
 
@@ -174,9 +174,8 @@ class Environment(gymnasium.Env):
             p=self.aviary,
             start_pos=start_pos,
             start_orn=start_orn,
-            rail_mesh_ids=self.clutter_mesh,
-            pos_center=np.array([0.0, 3, 0.0]),
-            orn_center=np.array([0.0, 0.0, 0.0]),
+            visual_ids=self.clutter_mesh,
+            collision_ids=self.clutter_collision_mesh,
         )
 
         # update all textures
@@ -304,11 +303,23 @@ class Environment(gymnasium.Env):
             self.aviary, self.rails_dir + "rail_turn_right.obj"
         )
 
-        # grass meshes
+        # clutter meshes
         self.clutter_mesh = np.ones(3)
         self.clutter_mesh[0] *= obj_visual(self.aviary, self.clutter_dir + "tunnel.obj")
         self.clutter_mesh[1] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
         self.clutter_mesh[2] *= obj_visual(self.aviary, self.clutter_dir + "empty.obj")
+
+        # collision meshes for the clutter
+        self.clutter_collision_mesh = np.ones(3)
+        self.clutter_collision_mesh[0] *= obj_collision(
+            self.aviary, self.clutter_dir + "tunnel.obj"
+        )
+        self.clutter_collision_mesh[1] *= obj_collision(
+            self.aviary, self.clutter_dir + "empty.obj"
+        )
+        self.clutter_collision_mesh[2] *= obj_collision(
+            self.aviary, self.clutter_dir + "empty.obj"
+        )
 
     def update_textures(self):
         """

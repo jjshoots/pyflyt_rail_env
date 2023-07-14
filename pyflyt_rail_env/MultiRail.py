@@ -13,22 +13,21 @@ class MultiRail:
         p: bullet_client.BulletClient,
         start_pos: np.ndarray,
         start_orn: np.ndarray,
-        rail_mesh_ids: np.ndarray,
-        pos_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
-        orn_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
+        visual_ids: np.ndarray = np.array([-1, -1, -1]),
+        collision_ids: np.ndarray = np.array([-1, -1, -1]),
     ):
         self.p = p
-        self.rail_mesh_ids = rail_mesh_ids
+        self.visual_ids = visual_ids
+        self.collision_ids = collision_ids
 
         rail = SingleRail(
             p=p,
             start_pos=start_pos,
             start_orn=start_orn,
-            rail_mesh_ids=rail_mesh_ids,
+            visual_ids=visual_ids,
+            collision_ids=collision_ids,
             spawn_id=0,
             parent=None,
-            pos_center=pos_center,
-            orn_center=orn_center,
         )
 
         self.tex_id = None
@@ -76,7 +75,7 @@ class MultiRail:
             direction = np.random.randint(0, 3) if direction == -1 else direction
 
             # spawn a new tail
-            self.tail.add_child(self.rail_mesh_ids, direction)
+            self.tail.add_child(direction)
             self.tail = self.tail.get_end(1)
             self.Ids.append(self.tail.Id)
 
@@ -100,15 +99,14 @@ class SingleRail:
         p: bullet_client.BulletClient,
         start_pos: np.ndarray,
         start_orn: np.ndarray,
-        rail_mesh_ids: np.ndarray,
+        visual_ids: np.ndarray,
+        collision_ids: np.ndarray,
         spawn_id: int,
         parent: SingleRail | None,
-        pos_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
-        orn_center: np.ndarray = np.array([0.0, 0.0, 0.0]),
     ):
         self.p = p
-        self.pos_center = pos_center
-        self.orn_center = orn_center
+        self.visual_ids = visual_ids.copy()
+        self.collision_ids = collision_ids.copy()
 
         # values are obtained from the readme in the rails models folder
         ROT = 0.1 * math.pi
@@ -160,28 +158,26 @@ class SingleRail:
 
         self.Id = loadOBJ(
             self.p,
-            visualId=rail_mesh_ids[spawn_id],
-            basePosition=self.base_pos + self.pos_center,
-            baseOrientation=self.p.getQuaternionFromEuler(
-                self.base_orn + self.orn_center
-            ),
+            visualId=visual_ids[spawn_id],
+            collisionId=collision_ids[spawn_id],
+            basePosition=self.base_pos,
+            baseOrientation=self.p.getQuaternionFromEuler(self.base_orn),
         )
 
         # linked = [parent, child]
         self.linked: list[SingleRail | None] = [None, None]
         self.linked[0] = parent
 
-    def add_child(self, rail_mesh_ids, spawn_id):
+    def add_child(self, spawn_id):
         """adds a single child to the end of the rail"""
         self.linked[1] = SingleRail(
             p=self.p,
             start_pos=self.end_pos,
             start_orn=self.end_orn,
-            rail_mesh_ids=rail_mesh_ids,
+            visual_ids=self.visual_ids,
+            collision_ids=self.collision_ids,
             spawn_id=spawn_id,
             parent=self,
-            pos_center=self.pos_center,
-            orn_center=self.orn_center,
         )
 
     def delete(self, direction: int):
