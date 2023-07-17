@@ -8,12 +8,10 @@ import os
 import gymnasium
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
 from PyFlyt.core.load_objs import obj_collision, obj_visual
 
-from .MultiRail import MultiRail
 from .MultiRailList import Rail
 
 
@@ -26,14 +24,17 @@ class Environment(gymnasium.Env):
 
     def __init__(
         self,
-        max_duration_seconds: int = 10000000,
+        max_duration_seconds: int = 60,
         agent_hz: int = 30,
         render_mode: None | str = None,
         spawn_height: float = 1.5,
         target_height: float = 1.0,
-        cam_resolution: tuple[int, int] = (54, 96),
-        cam_FOV_degrees: int = 110,
-        cam_angle_degrees: int = 45,
+        target_speed: float = 1.0,
+        max_velocity: float = 3.0,
+        max_yaw_rate: float = 3.142,
+        cam_resolution: tuple[int, int] = (64, 64),
+        cam_FOV_degrees: int = 145,
+        cam_angle_degrees: int = 70,
         update_textures_step: int = 240,
     ):
         """__init__.
@@ -45,6 +46,8 @@ class Environment(gymnasium.Env):
             render_mode (None | str): render_mode
             spawn_height (float): spawn_height
             target_height (float): target_height that the drone should try to aim above the track
+            max_velocity (float): maximum velocity allowed
+            max_yaw_rate (float): maximum yaw rate allowed
             camera_resolution (tuple[int, int]): camera_resolution in [height, width]
             camera_FOV_degrees (int): camera_FOV_degrees
             camera_angle_degrees (int): camera_angle_degrees
@@ -65,10 +68,14 @@ class Environment(gymnasium.Env):
 
         """GYMNASIUM STUFF"""
         # action space
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float64)
+        self.action_space = spaces.Box(
+            low=np.array([-max_velocity, -max_velocity, -max_yaw_rate, -max_velocity]),
+            high=np.array([max_velocity, max_velocity, max_yaw_rate, max_velocity]),
+            dtype=np.float64,
+        )
 
         # observation space
-        attitude_shape = 10 + self.action_space.shape[0]
+        attitude_shape = 6 + self.action_space.shape[0]
         self.observation_space = spaces.Dict(
             {
                 "attitude": spaces.Box(
@@ -86,31 +93,13 @@ class Environment(gymnasium.Env):
         """ ENVIRONMENT CONSTANTS """
         self.spawn_height = spawn_height
         self.target_height = target_height
+        self.target_speed = target_speed
         self.cam_resolution = cam_resolution
         self.cam_FOV_degrees = cam_FOV_degrees
         self.cam_angle_degrees = cam_angle_degrees
         self.max_steps = int(agent_hz * max_duration_seconds)
         self.env_step_ratio = int(120 / agent_hz)
         self.update_textures_step = update_textures_step
-
-        # form the array for inverse projection of the rail later
-        rad_per_pixel = (self.cam_FOV_degrees / 180 * math.pi) / self.cam_resolution[1]
-        yspace = np.arange(0, self.cam_resolution[0], +1) - (self.cam_resolution[0] / 2)
-        xspace = np.arange(self.cam_resolution[1], 0, -1) - (self.cam_resolution[1] / 2)
-        # angle array basically describes the yx angles that
-        # a ray of light forms relative to pure vertical
-        angle_array = np.stack(np.meshgrid(yspace, xspace), axis=-1).swapaxes(0, 1)
-        angle_array *= rad_per_pixel
-        # offset so we never have negative angles
-        angle_array[:, :, 0] += self.cam_angle_degrees / 180.0 * math.pi
-        angle_array[:, :, 1] += math.pi / 2.0
-        y = 1.0 / np.tan(angle_array[..., 0])
-        x = 1.0 / np.tan(angle_array[..., 1])
-        self.inv_proj = np.stack((y, x), axis=-1).reshape(-1, 2)
-        # import matplotlib.pyplot as plt
-        # plt.scatter(self.inv_proj[:, 1], self.inv_proj[:, 0])
-        # plt.show()
-        # exit()
 
         # where the model files are located
         self.rails_dir: str = os.path.join(
@@ -143,6 +132,10 @@ class Environment(gymnasium.Env):
         self.state = dict()
         self.action = np.zeros(*self.action_space.shape)
         self.step_count = 0
+
+        # for reward tracking
+        self.distance = 0.0
+        self.previous_distance = -math.inf
 
         # initialize the aviary
         drone_options = dict()
@@ -215,7 +208,6 @@ class Environment(gymnasium.Env):
         # get the relevant states
         raw_state = self.aviary.state(0)
         ang_vel = raw_state[0]
-        ang_vel = raw_state[0]
         lin_vel = raw_state[2]
 
         # combine everything
@@ -225,27 +217,57 @@ class Environment(gymnasium.Env):
         self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids)
         self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
 
+    def compute_track_state(self):
+        """
+        This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
+        """
+        # compute heading and draft of track relative to drone
+        closest = self.rails[0].closest(self.drone.state[-1])
+        vector = closest.end_pos[:2] - self.drone.state[-1][:2]
+        angular = np.tan(vector[1] / vector[0])
+        self.distance = np.linalg.norm(vector[:2])
+        lateral = self.distance * np.sin(angular)
+        self.track_state = np.array([lateral, angular])
+
+        # compute progress
+        self.progress = self.previous_distance - self.distance
+        self.progress = self.progress if self.progress > 0.0 else 0.0
+        self.previous_distance = self.distance.copy()
+
     def compute_term_trunc_reward(self):
         # vision reward is proportion of the image that is a railway
         vision_reward = np.sum(self.state["seg_img"]) / np.prod(
             self.state["seg_img"].shape
         )
 
+        # progress reward is the progress made toward the end of the nearest track
+        progress_reward = self.progress
+        progress_reward *= 30.0
+
+        # penalize going too fast
+        speed_penalty = (self.drone.state[-2][:2] - self.target_speed) ** 2
+        speed_penalty *= 1.0
+
         # collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
         collision_penalty *= 10.0
+
+        # target loss penalty
+        target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
+        target_loss_penalty = 10.0 * target_loss
 
         # height penalty is how far the drone is from the target height
         height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
         height_penalty *= 2.0
 
         # sum up all rewards
-        self.reward += vision_reward
-        self.reward -= collision_penalty + height_penalty
+        self.reward += vision_reward + progress_reward
+        self.reward -= collision_penalty + height_penalty + target_loss_penalty
 
         # handle termination truncation
         self.termination |= np.any(self.aviary.contact_array)
         self.termination |= np.any(np.isnan(self.track_state))
+        self.termination |= target_loss
         self.truncation |= self.step_count > self.max_steps
 
     def step(self, action: np.ndarray):
@@ -290,40 +312,6 @@ class Environment(gymnasium.Env):
         self.step_count += 1
 
         return self.state, self.reward, self.termination, self.truncation, dict()
-
-    def compute_track_state(self) -> np.ndarray:
-        """
-        This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
-        """
-        # ensure that there is a sufficient number of points to run polyfit
-        if np.sum(self.state["seg_img"]) > self.cam_resolution[0]:
-            # get the coordinates of points of the track under the drone
-            proj = (
-                self.inv_proj[self.state["seg_img"].flatten(), :]
-                * self.drone.state[-1][-1]
-            )
-
-            # fit a second order polynomial to the projection
-            poly = polynomial.Polynomial.fit(proj[:, 0], proj[:, 1], 2).convert(
-                domain=(-1, 1)
-            )
-            pos = polynomial.polyval(2.0, [*poly])
-            orn = math.atan(polynomial.polyval(2.0, [*poly.deriv()]))
-
-            # plt.scatter(proj[:, 0], proj[:, 1])
-            # plt.plot(
-            #     *poly.linspace(n=100, domain=(np.min(proj[:, 0]), np.max(proj[:, 0]))),
-            #     "y",
-            # )
-            # plt.show()
-            # exit()
-
-            # normalize
-            state = np.array([-pos, orn])
-            self.track_state = np.clip(state, -0.99999, 0.99999)
-
-        else:
-            self.track_state = np.array([np.NaN, np.NaN])
 
     def initialize_common_meshes(self):
         # rail meshes

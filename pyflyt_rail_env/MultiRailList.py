@@ -43,21 +43,63 @@ class Rail:
                 direction=0,
             )
         )
+
+        # list of rail ids
         self.rail_ids = np.array([self.rails[0].Id], dtype=np.int32)
+
+        # array of [n, 3] where 3 is xyz base position of each rail segment
+        self.rail_pos = np.array([self.rails[0].base_pos], dtype=np.float64)
 
     @property
     def head(self) -> SingleRail:
+        """head.
+
+        Args:
+
+        Returns:
+            SingleRail:
+        """
         return self.rails[0]
 
     @property
     def tail(self) -> SingleRail:
+        """tail.
+
+        Args:
+
+        Returns:
+            SingleRail:
+        """
         return self.rails[-1]
 
+    def closest(self, drone_pos: np.ndarray) -> SingleRail:
+        """Returns the rail that is closest to the drone
+
+        Args:
+            drone_pos (np.ndarray): drone_pos
+
+        Returns:
+            SingleRail:
+        """
+        difference = np.linalg.norm(self.rail_pos[:, :2] - drone_pos[:2], axis=-1)
+        closest = np.argmin(difference)
+        return self.rails[closest]
+
     def change_rail_texture(self, texture_id: int):
+        """change_rail_texture.
+
+        Args:
+            texture_id (int): texture_id
+        """
         for i in self.rail_ids:
             self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
 
     def change_clutter_texture(self, texture_id: int):
+        """change_clutter_texture.
+
+        Args:
+            texture_id (int): texture_id
+        """
         for rails in self.rails:
             for i in rails.clutter_ids:
                 self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
@@ -88,6 +130,7 @@ class Rail:
             for i in self.rails[0].clutter_ids:
                 self.p.removeBody(i)
             self.rail_ids = self.rail_ids[1:]
+            self.rail_pos = self.rail_pos[1:]
             self.rails.pop(0)
 
         # if the tail is too near, add a new one
@@ -106,6 +149,7 @@ class Rail:
                 )
             )
             self.rail_ids = np.append(self.rail_ids, self.rails[-1].Id)
+            self.rail_pos = np.append(self.rail_pos, [self.rails[-1].base_pos], axis=0)
 
         return direction
 
@@ -143,40 +187,32 @@ class SingleRail:
             end_offset = np.matmul(rot_mat, np.array([0, 10.125]))
             end_offset = np.array([*end_offset, 0.0])
 
-            self.start_pos = start_pos
-            self.start_orn = start_orn
-            self.end_pos = self.start_pos + 2 * end_offset
-            self.end_orn = self.start_orn
-            self.base_pos = self.start_pos + end_offset
-            self.base_orn = self.start_orn
+            self.end_pos = start_pos + 2 * end_offset
+            self.end_orn = start_orn
+            self.base_pos = start_pos + end_offset
+            self.base_orn = start_orn
         elif direction == 1:
             base_offset = np.matmul(rot_mat, np.array([0.0, 10.061]))
             base_offset = np.array([*base_offset, 0.0])
             end_offset = np.matmul(rot_mat, np.array([-2.209, 20.186]))
             end_offset = np.array([*end_offset, 0.0])
 
-            self.start_pos = start_pos
-            self.start_orn = start_orn
-            self.end_pos = self.start_pos + end_offset
-            self.end_orn = self.start_orn + np.array([0, 0, ROT])
-            self.base_pos = self.start_pos + base_offset
-            self.base_orn = self.start_orn
+            self.end_pos = start_pos + end_offset
+            self.end_orn = start_orn + np.array([0, 0, ROT])
+            self.base_pos = start_pos + base_offset
+            self.base_orn = start_orn
         elif direction == 2:
             base_offset = np.matmul(rot_mat, np.array([0.0, 10.061]))
             base_offset = np.array([*base_offset, 0.0])
             end_offset = np.matmul(rot_mat, np.array([2.209, 20.186]))
             end_offset = np.array([*end_offset, 0.0])
 
-            self.start_pos = start_pos
-            self.start_orn = start_orn
-            self.end_pos = self.start_pos + end_offset
-            self.end_orn = self.start_orn + np.array([0, 0, -ROT])
-            self.base_pos = self.start_pos + base_offset
-            self.base_orn = self.start_orn
+            self.end_pos = start_pos + end_offset
+            self.end_orn = start_orn + np.array([0, 0, -ROT])
+            self.base_pos = start_pos + base_offset
+            self.base_orn = start_orn
         else:
             print("IMPORTING UNKNOWN RAIL OBJECT")
-            self.start_pos = start_pos
-            self.start_orn = start_orn
             self.end_pos = start_pos
             self.end_orn = start_orn
             self.base_pos = start_pos
@@ -199,6 +235,14 @@ class SingleRail:
         pos_offset: np.ndarray,
         orn_offset: np.ndarray,
     ):
+        """add_clutter.
+
+        Args:
+            visual_id (int): visual_id
+            collision_id (int): collision_id
+            pos_offset (np.ndarray): pos_offset
+            orn_offset (np.ndarray): orn_offset
+        """
         # funky transforms
         c, s = np.cos(-self.base_orn[-1]), np.sin(-self.base_orn[-1])
         rot_mat = np.array([[c, -s], [s, c]]).T
