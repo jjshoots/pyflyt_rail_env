@@ -30,8 +30,9 @@ class Environment(gymnasium.Env):
         agent_hz: int = 30,
         render_mode: None | str = None,
         spawn_height: float = 1.5,
+        target_height: float = 1.0,
         cam_resolution: tuple[int, int] = (54, 96),
-        cam_FOV_degrees: int = 90,
+        cam_FOV_degrees: int = 110,
         cam_angle_degrees: int = 45,
         update_textures_step: int = 240,
     ):
@@ -43,6 +44,7 @@ class Environment(gymnasium.Env):
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
             spawn_height (float): spawn_height
+            target_height (float): target_height that the drone should try to aim above the track
             camera_resolution (tuple[int, int]): camera_resolution in [height, width]
             camera_FOV_degrees (int): camera_FOV_degrees
             camera_angle_degrees (int): camera_angle_degrees
@@ -83,6 +85,7 @@ class Environment(gymnasium.Env):
 
         """ ENVIRONMENT CONSTANTS """
         self.spawn_height = spawn_height
+        self.target_height = target_height
         self.cam_resolution = cam_resolution
         self.cam_FOV_degrees = cam_FOV_degrees
         self.cam_angle_degrees = cam_angle_degrees
@@ -124,6 +127,7 @@ class Environment(gymnasium.Env):
         )
 
         """ INITIALIZE """
+        self.aviary: Aviary
         self.reset()
 
     def reset(self, seed=None, options=dict()):
@@ -179,6 +183,9 @@ class Environment(gymnasium.Env):
             )
         )
 
+        # initialize the track state
+        self.track_state = np.array([0.0, 0.0])
+
         # update all textures
         self.update_textures()
 
@@ -219,9 +226,27 @@ class Environment(gymnasium.Env):
         self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
 
     def compute_term_trunc_reward(self):
-        self.termination = False
-        self.truncation = self.step_count > self.max_steps
-        self.reward = 0.1
+        # vision reward is proportion of the image that is a railway
+        vision_reward = np.sum(self.state["seg_img"]) / np.prod(
+            self.state["seg_img"].shape
+        )
+
+        # collision reward is negative of collision
+        collision_penalty = np.any(self.aviary.contact_array)
+        collision_penalty *= 10.0
+
+        # height penalty is how far the drone is from the target height
+        height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
+        height_penalty *= 2.0
+
+        # sum up all rewards
+        self.reward += vision_reward
+        self.reward -= collision_penalty + height_penalty
+
+        # handle termination truncation
+        self.termination |= np.any(self.aviary.contact_array)
+        self.termination |= np.any(np.isnan(self.track_state))
+        self.truncation |= self.step_count > self.max_steps
 
     def step(self, action: np.ndarray):
         """Steps the environment.
@@ -237,8 +262,15 @@ class Environment(gymnasium.Env):
         self.aviary.set_setpoint(0, action)
 
         # step through env, the internal env updates a few steps before the outer env
+        self.reward = 0.0
         for _ in range(self.env_step_ratio):
+            # if already ended, just complete the loop
+            if self.termination or self.truncation:
+                break
             self.aviary.step()
+            self.compute_state()
+            self.compute_track_state()
+            self.compute_term_trunc_reward()
 
         # handle the rails and clutter
         spawn_direction = self.rails[0].handle_rail_bounds(self.drone.state[-1])
@@ -254,19 +286,14 @@ class Environment(gymnasium.Env):
         if self.step_count % self.update_textures_step == 1:
             self.update_textures()
 
-        # compute state and done
-        self.compute_state()
-        self.compute_term_trunc_reward()
-
         # increment step count
         self.step_count += 1
 
         return self.state, self.reward, self.termination, self.truncation, dict()
 
-    def track_state(self) -> np.ndarray:
+    def compute_track_state(self) -> np.ndarray:
         """
-        I have mostly no idea what's going on here.
-        But this returns the position of the track relative to the drone as a [pos, orn] 2 value array.
+        This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
         # ensure that there is a sufficient number of points to run polyfit
         if np.sum(self.state["seg_img"]) > self.cam_resolution[0]:
@@ -293,10 +320,10 @@ class Environment(gymnasium.Env):
 
             # normalize
             state = np.array([-pos, orn])
-            return np.clip(state, -0.99999, 0.99999)
+            self.track_state = np.clip(state, -0.99999, 0.99999)
 
         else:
-            return np.array([np.NaN, np.NaN])
+            self.track_state = np.array([np.NaN, np.NaN])
 
     def initialize_common_meshes(self):
         # rail meshes
