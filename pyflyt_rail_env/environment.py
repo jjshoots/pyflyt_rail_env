@@ -6,6 +6,7 @@ import math
 import os
 
 import gymnasium
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
@@ -28,10 +29,10 @@ class Environment(gymnasium.Env):
         max_duration_seconds: int = 10000000,
         agent_hz: int = 30,
         render_mode: None | str = None,
-        spawn_height: float = 1.0,
+        spawn_height: float = 1.5,
         cam_resolution: tuple[int, int] = (54, 96),
-        cam_FOV_degrees: int = 145,
-        cam_angle_degrees: int = 70,
+        cam_FOV_degrees: int = 90,
+        cam_angle_degrees: int = 45,
         update_textures_step: int = 240,
     ):
         """__init__.
@@ -91,7 +92,7 @@ class Environment(gymnasium.Env):
 
         # form the array for inverse projection of the rail later
         rad_per_pixel = (self.cam_FOV_degrees / 180 * math.pi) / self.cam_resolution[1]
-        yspace = np.arange(self.cam_resolution[0], 0, -1) - (self.cam_resolution[0] / 2)
+        yspace = np.arange(0, self.cam_resolution[0], +1) - (self.cam_resolution[0] / 2)
         xspace = np.arange(self.cam_resolution[1], 0, -1) - (self.cam_resolution[1] / 2)
         # angle array basically describes the yx angles that
         # a ray of light forms relative to pure vertical
@@ -279,12 +280,14 @@ class Environment(gymnasium.Env):
             poly = polynomial.Polynomial.fit(proj[:, 0], proj[:, 1], 2).convert(
                 domain=(-1, 1)
             )
-            pos = polynomial.polyval(1.0, [*poly])
-            orn = math.atan(polynomial.polyval(1.0, [*poly.deriv()]))
+            pos = polynomial.polyval(2.0, [*poly])
+            orn = math.atan(polynomial.polyval(2.0, [*poly.deriv()]))
 
-            # import matplotlib.pyplot as plt
             # plt.scatter(proj[:, 0], proj[:, 1])
-            # plt.plot(*poly.linspace(n=100, domain=(0, np.max(proj[:, 1]))), "y")
+            # plt.plot(
+            #     *poly.linspace(n=100, domain=(np.min(proj[:, 0]), np.max(proj[:, 0]))),
+            #     "y",
+            # )
             # plt.show()
             # exit()
 
