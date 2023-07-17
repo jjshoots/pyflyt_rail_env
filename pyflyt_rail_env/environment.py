@@ -29,9 +29,9 @@ class Environment(gymnasium.Env):
         agent_hz: int = 30,
         render_mode: None | str = None,
         spawn_height: float = 1.0,
-        camera_resolution: tuple[int, int] = (64, 64),
-        camera_FOV_degrees: int = 145,
-        camera_angle_degrees: int = 70,
+        cam_resolution: tuple[int, int] = (54, 96),
+        cam_FOV_degrees: int = 145,
+        cam_angle_degrees: int = 70,
         update_textures_step: int = 240,
     ):
         """__init__.
@@ -42,7 +42,7 @@ class Environment(gymnasium.Env):
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
             spawn_height (float): spawn_height
-            camera_resolution (tuple[int, int]): camera_resolution
+            camera_resolution (tuple[int, int]): camera_resolution in [height, width]
             camera_FOV_degrees (int): camera_FOV_degrees
             camera_angle_degrees (int): camera_angle_degrees
             update_textures_step (int): how often to change the textures
@@ -71,34 +71,42 @@ class Environment(gymnasium.Env):
                 "attitude": spaces.Box(
                     low=-np.inf, high=np.inf, shape=(attitude_shape,), dtype=np.float64
                 ),
-                "rgba_cam": spaces.Box(
-                    low=0.0, high=255.0, shape=(4, *camera_resolution), dtype=np.uint8
+                "rgba_img": spaces.Box(
+                    low=0.0, high=255.0, shape=(4, *cam_resolution), dtype=np.uint8
+                ),
+                "seg_img": spaces.Box(
+                    low=0.0, high=1024.0, shape=(4, *cam_resolution), dtype=np.uint8
                 ),
             }
         )
 
         """ ENVIRONMENT CONSTANTS """
         self.spawn_height = spawn_height
-        self.camera_resolution = camera_resolution
-        self.camera_FOV_degrees = camera_FOV_degrees
-        self.camera_angle_degrees = camera_angle_degrees
+        self.cam_resolution = cam_resolution
+        self.cam_FOV_degrees = cam_FOV_degrees
+        self.cam_angle_degrees = cam_angle_degrees
         self.max_steps = int(agent_hz * max_duration_seconds)
         self.env_step_ratio = int(120 / agent_hz)
         self.update_textures_step = update_textures_step
 
         # form the array for inverse projection of the rail later
-        # I pretty much have no idea what any of these are
-        seg_centre = (self.camera_resolution[0]) / 2
-        rpp = (self.camera_FOV_degrees / 180 * math.pi) / self.camera_resolution[0]
-        xspace = np.arange(self.camera_resolution[0], 0, -1)
-        yspace = np.arange(self.camera_resolution[1], 0, -1)
-        a_array = np.stack(np.meshgrid(xspace, yspace), axis=-1) - seg_centre
-        a_array *= rpp
-        a_array[:, :, 1] += self.camera_angle_degrees / 180.0 * math.pi
-        a_array = a_array.reshape(-1, 2)
-        x = np.tan(a_array[:, 0]) / abs(np.cos(a_array[:, 1]))
-        y = np.sin(a_array[:, 1]) / abs(np.cos(a_array[:, 1]))
-        self.inv_proj = np.stack((x, y), axis=-1)
+        rad_per_pixel = (self.cam_FOV_degrees / 180 * math.pi) / self.cam_resolution[1]
+        yspace = np.arange(self.cam_resolution[0], 0, -1) - (self.cam_resolution[0] / 2)
+        xspace = np.arange(self.cam_resolution[1], 0, -1) - (self.cam_resolution[1] / 2)
+        # angle array basically describes the yx angles that
+        # a ray of light forms relative to pure vertical
+        angle_array = np.stack(np.meshgrid(yspace, xspace), axis=-1).swapaxes(0, 1)
+        angle_array *= rad_per_pixel
+        # offset so we never have negative angles
+        angle_array[:, :, 0] += self.cam_angle_degrees / 180.0 * math.pi
+        angle_array[:, :, 1] += math.pi / 2.0
+        y = 1.0 / np.tan(angle_array[..., 0])
+        x = 1.0 / np.tan(angle_array[..., 1])
+        self.inv_proj = np.stack((y, x), axis=-1).reshape(-1, 2)
+        # import matplotlib.pyplot as plt
+        # plt.scatter(self.inv_proj[:, 1], self.inv_proj[:, 0])
+        # plt.show()
+        # exit()
 
         # where the model files are located
         self.rails_dir: str = os.path.join(
@@ -136,10 +144,10 @@ class Environment(gymnasium.Env):
         drone_options["drone_model"] = "primitive_drone"
         drone_options["use_camera"] = True
         drone_options["use_gimbal"] = True
-        drone_options["camera_resolution"] = self.camera_resolution
-        drone_options["camera_FOV_degrees"] = self.camera_FOV_degrees
-        drone_options["camera_angle_degrees"] = -self.camera_angle_degrees
-        start_pos = np.array([[-1.0, 0.0, self.spawn_height]])
+        drone_options["camera_resolution"] = self.cam_resolution
+        drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees
+        drone_options["camera_angle_degrees"] = -self.cam_angle_degrees
+        start_pos = np.array([[1.0, 0.0, self.spawn_height]])
         start_orn = np.array([[0.0, 0.0, 0.0]])
         self.aviary = Aviary(
             start_pos=start_pos,
@@ -206,9 +214,8 @@ class Environment(gymnasium.Env):
         self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
 
         # grab the image
-        track_image = np.isin(np.moveaxis(self.drone.segImg, -1, 0), self.rails[0].rail_ids)
-        self.state["seg_img"] = np.concatenate([track_image], axis=0)
-        self.state["rgba_img"] = np.moveaxis(self.drone.rgbaImg.astype(np.uint8), -1, 0)
+        self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids)
+        self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
 
     def compute_term_trunc_reward(self):
         self.termination = False
@@ -261,28 +268,28 @@ class Environment(gymnasium.Env):
         But this returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
         # ensure that there is a sufficient number of points to run polyfit
-        if np.sum(self.state["seg_img"]) > self.camera_resolution[0]:
+        if np.sum(self.state["seg_img"]) > self.cam_resolution[0]:
             # get the coordinates of points of the track under the drone
             proj = (
-                self.inv_proj[self.state["seg_img"].flatten()]
+                self.inv_proj[self.state["seg_img"].flatten(), :]
                 * self.drone.state[-1][-1]
             )
 
             # fit a second order polynomial to the projection
-            poly = polynomial.Polynomial.fit(proj[:, 1], proj[:, 0], 2).convert(
+            poly = polynomial.Polynomial.fit(proj[:, 0], proj[:, 1], 2).convert(
                 domain=(-1, 1)
             )
             pos = polynomial.polyval(1.0, [*poly])
             orn = math.atan(polynomial.polyval(1.0, [*poly.deriv()]))
 
             # import matplotlib.pyplot as plt
-            # plt.scatter(proj[:, 1], proj[:, 0])
+            # plt.scatter(proj[:, 0], proj[:, 1])
             # plt.plot(*poly.linspace(n=100, domain=(0, np.max(proj[:, 1]))), "y")
             # plt.show()
             # exit()
 
             # normalize
-            state = np.array([pos, orn])
+            state = np.array([-pos, orn])
             return np.clip(state, -0.99999, 0.99999)
 
         else:
