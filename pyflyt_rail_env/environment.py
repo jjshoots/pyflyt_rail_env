@@ -8,6 +8,7 @@ import os
 import gymnasium
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
 from PyFlyt.core.load_objs import obj_collision, obj_visual
@@ -35,7 +36,7 @@ class Environment(gymnasium.Env):
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
-        update_textures_step: int = 240,
+        update_textures_seconds: int = 10,
     ):
         """__init__.
 
@@ -51,7 +52,7 @@ class Environment(gymnasium.Env):
             camera_resolution (tuple[int, int]): camera_resolution in [height, width]
             camera_FOV_degrees (int): camera_FOV_degrees
             camera_angle_degrees (int): camera_angle_degrees
-            update_textures_step (int): how often to change the textures
+            update_textures_seconds (int): how often to change the textures
         """
         if 120 % agent_hz != 0:
             lowest = int(120 / (int(120 / agent_hz) + 1))
@@ -99,7 +100,7 @@ class Environment(gymnasium.Env):
         self.cam_angle_degrees = cam_angle_degrees
         self.max_steps = int(agent_hz * max_duration_seconds)
         self.env_step_ratio = int(120 / agent_hz)
-        self.update_textures_step = update_textures_step
+        self.update_textures_step = update_textures_seconds * agent_hz
 
         # where the model files are located
         self.rails_dir: str = os.path.join(
@@ -114,6 +115,22 @@ class Environment(gymnasium.Env):
         self.texture_paths = glob.glob(
             os.path.join(tex_dir, "**", "*.jpg"), recursive=True
         )
+
+        # form the array for inverse projection later
+        seg_centre = (self.cam_resolution[1] + 1) / 2
+        rad_per_pixel = (cam_FOV_degrees / 180 * math.pi) / self.cam_resolution[1]
+        xspace = np.arange(self.cam_resolution[0], 0, -1)
+        yspace = np.arange(self.cam_resolution[1], 0, -1)
+        angle_array = np.stack(np.meshgrid(xspace, yspace), axis=-1) - seg_centre
+        angle_array *= rad_per_pixel
+        angle_array[:, :, 1] += cam_angle_degrees / 180.0 * math.pi
+        angle_array = angle_array.reshape(-1, 2)
+        y = np.sin(angle_array[:, 1]) / abs(np.cos(angle_array[:, 1]))
+        x = np.tan(angle_array[:, 0]) / abs(np.cos(angle_array[:, 1]))
+        self.inv_proj = np.stack((x, y), axis=-1)
+        # plt.scatter(self.inv_proj[:, 0], self.inv_proj[:, 1])
+        # plt.show()
+        # exit()
 
         """ INITIALIZE """
         self.aviary: Aviary
@@ -221,15 +238,36 @@ class Environment(gymnasium.Env):
         """
         This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
-        # compute heading and draft of track relative to drone
-        closest = self.rails[0].closest(self.drone.state[-1])
-        vector = closest.end_pos[:2] - self.drone.state[-1][:2]
-        angular = np.tan(vector[1] / vector[0])
-        self.distance = np.linalg.norm(vector[:2])
-        lateral = self.distance * np.sin(angular)
-        self.track_state = np.array([lateral, angular])
+        if np.sum(self.state["seg_img"]) > self.cam_resolution[1]:
+            proj = (
+                self.inv_proj[self.state["seg_img"].flatten()]
+                * self.drone.state[-1][-1]
+            )
+
+            poly = polynomial.Polynomial.fit(proj[:, 1], proj[:, 0], 2).convert(
+                domain=(-1, 1)
+            )
+            pos = polynomial.polyval(1.0, [*poly])
+            orn = math.atan(polynomial.polyval(1.0, [*poly.deriv()]))
+
+            # plt.scatter(proj[:, 1], proj[:, 0])
+            # plt.plot(*poly.linspace(n=100, domain=(0, np.max(proj[:, 1]))), "y")
+            # plt.show()
+            # exit()
+
+            # normalize
+            state = np.array([pos, orn])
+            self.track_state = np.clip(state, -0.99999, 0.99999)
+
+        else:
+            self.track_state = np.array([np.NaN, np.NaN])
 
         # compute progress
+        vector = (
+            self.rails[0].closest(self.drone.state[-1][:2]).end_pos[:2]
+            - self.drone.state[-1][:2]
+        )
+        self.distance = np.linalg.norm(vector[:2])
         self.progress = self.previous_distance - self.distance
         self.progress = self.progress if self.progress > 0.0 else 0.0
         self.previous_distance = self.distance.copy()
@@ -296,7 +334,7 @@ class Environment(gymnasium.Env):
 
         # handle the rails and clutter
         spawn_direction = self.rails[0].handle_rail_bounds(self.drone.state[-1])
-        if spawn_direction == 0:
+        if spawn_direction == 0 and False:
             self.rails[0].tail.add_clutter(
                 self.tunnel_visual,
                 self.tunnel_collision,
@@ -342,6 +380,7 @@ class Environment(gymnasium.Env):
         25% chance of rail, floor, and clutter being same texture
         25% chance of all different
         """
+        return
 
         chance = np.random.randint(4)
 

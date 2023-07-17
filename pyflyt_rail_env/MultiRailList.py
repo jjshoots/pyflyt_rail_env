@@ -168,6 +168,10 @@ class SingleRail:
     ):
         """__init__.
 
+        Note:
+            end_pos defines the end point of the track
+            base_pos is somewhere in the middle of it, NOT THE START
+
         Args:
             p (bullet_client.BulletClient): p
             start_pos (np.ndarray): start_pos
