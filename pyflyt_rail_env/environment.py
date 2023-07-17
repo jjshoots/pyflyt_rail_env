@@ -260,7 +260,7 @@ class Environment(gymnasium.Env):
             self.track_state = np.clip(state, -0.99999, 0.99999)
 
         else:
-            self.track_state = np.array([np.NaN, np.NaN])
+            self.track_state = np.array([0.0, 0.0])
 
         # compute progress
         vector = (
