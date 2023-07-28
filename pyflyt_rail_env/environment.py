@@ -6,7 +6,6 @@ import math
 import os
 
 import gymnasium
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
@@ -33,6 +32,7 @@ class Environment(gymnasium.Env):
         target_speed: float = 1.0,
         max_velocity: float = 3.0,
         max_yaw_rate: float = 3.142,
+        max_height: float = 15.0,
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
@@ -95,6 +95,7 @@ class Environment(gymnasium.Env):
         self.spawn_height = spawn_height
         self.target_height = target_height
         self.target_speed = target_speed
+        self.max_height = max_height
         self.cam_resolution = cam_resolution
         self.cam_FOV_degrees = cam_FOV_degrees
         self.cam_angle_degrees = cam_angle_degrees
@@ -149,6 +150,19 @@ class Environment(gymnasium.Env):
         self.state = dict()
         self.action = np.zeros(*self.action_space.shape)
         self.step_count = 0
+
+        # initialize the infos
+        self.infos = dict()
+        self.infos["reward_breakdown"] = 0.0
+        self.infos["reward_breakdown_keys"] = []
+        self.infos["reward_breakdown_keys"].append("reward_drift")
+        self.infos["reward_breakdown_keys"].append("reward_progress")
+        self.infos["reward_breakdown_keys"].append("reward_speed")
+        self.infos["reward_breakdown_keys"].append("reward_collision")
+        self.infos["reward_breakdown_keys"].append("reward_target_loss")
+        self.infos["reward_breakdown_keys"].append("reward_height")
+        self.infos["reward_breakdown_keys"].append("reward_heading")
+        self.infos["reward_breakdown_keys"].append("reward_vision")
 
         # for reward tracking
         self.distance = 0.0
@@ -205,6 +219,10 @@ class Environment(gymnasium.Env):
 
         # get the state
         self.compute_state()
+
+        # get the debug camera parameters
+        if self.render_mode is not None:
+            self.camera_parameters = self.aviary.getDebugVisualizerCamera()
 
         return self.state, dict()
 
@@ -273,30 +291,56 @@ class Environment(gymnasium.Env):
         self.previous_distance = self.distance.copy()
 
     def compute_term_trunc_reward(self):
-        # vision reward is proportion of the image that is a railway
-        vision_reward = np.sum(self.state["seg_img"]) / np.prod(
-            self.state["seg_img"].shape
-        )
+        reward_breakdown = []
 
-        # progress reward is the progress made toward the end of the nearest track
+        # 0. vision reward is proportion of the image that is a railway
+        # vision_reward = np.sum(self.state["seg_img"]) / np.prod(
+        #     self.state["seg_img"].shape
+        # )
+        # reward_breakdown.append(vision_reward)
+        reward_breakdown.append(0.0)
+
+        # 1. progress reward is the progress made toward the end of the nearest track
         progress_reward = self.progress
         progress_reward *= 30.0
+        reward_breakdown.append(progress_reward)
 
-        # penalize going too fast
-        speed_penalty = (self.drone.state[-2][:2] - self.target_speed) ** 2
-        speed_penalty *= 1.0
+        # 2. penalize going too fast
+        speed_penalty = float(
+            abs(np.linalg.norm(self.drone.state[-2][:2]) - self.target_speed)
+        )
+        speed_penalty = min(speed_penalty, 2.0 * self.target_speed)
+        speed_penalty = speed_penalty**2
+        speed_penalty *= 3.0
+        reward_breakdown.append(-speed_penalty)
 
-        # collision reward is negative of collision
+        # 3. collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
-        collision_penalty *= 10.0
+        collision_penalty *= 100.0
+        reward_breakdown.append(-collision_penalty)
 
-        # target loss penalty
+        # 4. target loss penalty
         target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
-        target_loss_penalty = 10.0 * target_loss
+        target_loss_penalty = 100.0 * target_loss
+        reward_breakdown.append(-target_loss_penalty)
 
-        # height penalty is how far the drone is from the target height
+        # 5. height penalty is how far the drone is from the target height
         height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
         height_penalty *= 2.0
+        reward_breakdown.append(-height_penalty)
+
+        # 6. heading penalty
+        heading_penalty = -abs(self.track_state[1])
+        heading_penalty *= 5.0
+        reward_breakdown.append(-heading_penalty)
+
+        # 7. heading penalty
+        drift_penalty = -abs(self.track_state[0])
+        drift_penalty *= 5.0
+        reward_breakdown.append(-drift_penalty)
+
+        # handle the reward breakdown for logging
+        self.infos["reward_breakdown"] += np.array(reward_breakdown)
 
         # sum up all rewards
         self.reward += vision_reward + progress_reward
@@ -305,6 +349,7 @@ class Environment(gymnasium.Env):
         # handle termination truncation
         self.termination |= np.any(self.aviary.contact_array)
         self.termination |= np.any(np.isnan(self.track_state))
+        self.termination |= self.drone.state[-1][-1] > self.max_height
         self.termination |= target_loss
         self.truncation |= self.step_count > self.max_steps
 
@@ -349,7 +394,7 @@ class Environment(gymnasium.Env):
         # increment step count
         self.step_count += 1
 
-        return self.state, self.reward, self.termination, self.truncation, dict()
+        return self.state, self.reward, self.termination, self.truncation, self.infos
 
     def initialize_common_meshes(self):
         # rail meshes
@@ -440,3 +485,15 @@ class Environment(gymnasium.Env):
         while tex_id < 0:
             tex_id = self.aviary.loadTexture(texture_path)
         return tex_id
+
+    def render(self) -> np.ndarray:
+        _, _, rgbaImg, _, _ = self.aviary.getCameraImage(
+            width=640,
+            height=480,
+            viewMatrix=self.camera_parameters[2],
+            projectionMatrix=self.camera_parameters[3],
+        )
+
+        rgbaImg = np.asarray(rgbaImg).reshape(480, 640, -1)
+
+        return rgbaImg
