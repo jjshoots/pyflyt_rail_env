@@ -298,6 +298,7 @@ class Environment(gymnasium.Env):
         #     self.state["seg_img"].shape
         # )
         # reward_breakdown.append(vision_reward)
+        vision_reward = 0.0
         reward_breakdown.append(0.0)
 
         # 1. progress reward is the progress made toward the end of the nearest track
@@ -330,12 +331,12 @@ class Environment(gymnasium.Env):
         reward_breakdown.append(-height_penalty)
 
         # 6. heading penalty
-        heading_penalty = -abs(self.track_state[1])
+        heading_penalty = abs(self.track_state[1])
         heading_penalty *= 5.0
         reward_breakdown.append(-heading_penalty)
 
         # 7. heading penalty
-        drift_penalty = -abs(self.track_state[0])
+        drift_penalty = abs(self.track_state[0])
         drift_penalty *= 5.0
         reward_breakdown.append(-drift_penalty)
 
@@ -344,7 +345,13 @@ class Environment(gymnasium.Env):
 
         # sum up all rewards
         self.reward += vision_reward + progress_reward
-        self.reward -= collision_penalty + height_penalty + target_loss_penalty
+        self.reward -= (
+            collision_penalty
+            + height_penalty
+            + target_loss_penalty
+            + heading_penalty
+            + drift_penalty
+        )
 
         # handle termination truncation
         self.termination |= np.any(self.aviary.contact_array)
