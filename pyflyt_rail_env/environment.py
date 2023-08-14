@@ -29,10 +29,12 @@ class Environment(gymnasium.Env):
         render_mode: None | str = None,
         spawn_height: float = 1.5,
         target_height: float = 1.0,
-        target_speed: float = 1.0,
+        target_velocity: float = 3.0,
         max_velocity: float = 3.0,
-        max_yaw_rate: float = 3.142,
-        max_height: float = 15.0,
+        max_yaw_rate: float = np.pi,
+        corridor_height: float = 10.0,
+        corridor_width: float = 5.0,
+        corridor_max_angle: float = np.pi / 5.0,
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
@@ -41,18 +43,21 @@ class Environment(gymnasium.Env):
         """__init__.
 
         Args:
-            max_duration_seconds (float): max_duration_seconds
-            angle_representation (str): angle_representation
+            max_duration_seconds (int): max_duration_seconds
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
             spawn_height (float): spawn_height
-            target_height (float): target_height that the drone should try to aim above the track
-            max_velocity (float): maximum velocity allowed
-            max_yaw_rate (float): maximum yaw rate allowed
-            camera_resolution (tuple[int, int]): camera_resolution in [height, width]
-            camera_FOV_degrees (int): camera_FOV_degrees
-            camera_angle_degrees (int): camera_angle_degrees
-            update_textures_seconds (int): how often to change the textures
+            target_height (float): target_height
+            target_velocity (float): target_velocity
+            max_velocity (float): max_velocity
+            max_yaw_rate (float): max_yaw_rate
+            corridor_height (float): corridor_height
+            corridor_width (float): corridor_width
+            corridor_max_angle (float): corridor_max_angle
+            cam_resolution (tuple[int, int]): cam_resolution
+            cam_FOV_degrees (int): cam_FOV_degrees
+            cam_angle_degrees (int): cam_angle_degrees
+            update_textures_seconds (int): update_textures_seconds
         """
         if 120 % agent_hz != 0:
             lowest = int(120 / (int(120 / agent_hz) + 1))
@@ -94,8 +99,10 @@ class Environment(gymnasium.Env):
         """ ENVIRONMENT CONSTANTS """
         self.spawn_height = spawn_height
         self.target_height = target_height
-        self.target_speed = target_speed
-        self.max_height = max_height
+        self.target_velocity = target_velocity
+        self.corridor_height = corridor_height
+        self.corridor_width = corridor_width
+        self.corridor_max_angle = corridor_max_angle
         self.cam_resolution = cam_resolution
         self.cam_FOV_degrees = cam_FOV_degrees
         self.cam_angle_degrees = cam_angle_degrees
@@ -138,6 +145,12 @@ class Environment(gymnasium.Env):
         self.reset()
 
     def reset(self, seed=None, options=dict()):
+        """reset.
+
+        Args:
+            seed:
+            options:
+        """
         super().reset(seed=seed)
 
         # if we already have an env, disconnect from it
@@ -270,72 +283,72 @@ class Environment(gymnasium.Env):
         else:
             self.track_state = np.array([0.0, 0.0])
 
-        # compute progress
-        vector = (
-            self.rails[0].closest(self.drone.state[-1][:2]).end_pos[:2]
-            - self.drone.state[-1][:2]
-        )
-        self.distance = np.linalg.norm(vector[:2])
-        self.progress = self.previous_distance - self.distance
-        self.progress = self.progress if self.progress > 0.0 else 0.0
-        self.previous_distance = self.distance.copy()
-
     def compute_term_trunc_reward(self):
+        """compute_term_trunc_reward.
+        """
 
-        # 0. vision reward is proportion of the image that is a railway
-        vision_reward = np.sum(self.state["seg_img"]) / np.prod(
-            self.state["seg_img"].shape
-        )
-        vision_reward *= 0.3
+        # drift penalty
+        drift_penalty = abs(self.track_state[0])
+        drift_penalty *= 1.0
 
-        # 1. progress reward is the progress made toward the end of the nearest track
-        progress_reward = self.progress
-        progress_reward *= 50.0
+        # yaw penalty
+        yaw_penalty = abs(self.track_state[1])
+        yaw_penalty *= 1.0
 
-        # 2. penalize going too fast
-        speed_penalty = float(
-            abs(np.linalg.norm(self.drone.state[-2][:2]) - self.target_speed)
-        )
-        speed_penalty = min(speed_penalty, 2.0 * self.target_speed)
-        speed_penalty = speed_penalty**2
-        speed_penalty *= 1.0
+        # height penalty
+        height_penalty = abs(self.drone.state[-1][-1] - self.target_height)
+        height_penalty *= 1.0
 
-        # 3. collision reward is negative of collision
+        # collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
         collision_penalty *= 1000.0
 
-        # 4. target loss penalty
+        # target loss penalty
         target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
+        target_loss |= abs(self.track_state[1] ) > self.corridor_max_angle
         target_loss_penalty = 1000.0 * target_loss
 
-        # 5. height penalty is how far the drone is from the target height
-        height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
-        height_penalty *= 1.0
-
-        # 6. heading penalty
-        heading_penalty = abs(self.track_state[1])
-        heading_penalty *= 10.0
-
-        # 7. drift penalty
-        drift_penalty = abs(self.track_state[0])
-        drift_penalty *= 0.0
-
         # sum up all rewards
-        self.reward += vision_reward + progress_reward + 10.0
+        self.reward += 5.0
         self.reward -= (
-            collision_penalty
-            + height_penalty
-            + target_loss_penalty
-            + heading_penalty
             + drift_penalty
+            + yaw_penalty
+            + height_penalty
+            + collision_penalty
+            + target_loss_penalty
         )
 
         # handle termination truncation
-        self.termination |= np.any(self.aviary.contact_array)
-        self.termination |= np.any(np.isnan(self.track_state))
-        self.termination |= self.drone.state[-1][-1] > self.max_height
+        # terminate on:
+        # - target loss
+        # - collisions
+        # - drifted too far
+        # - drone slowed to a close
         self.termination |= target_loss
+        self.termination |= np.any(self.aviary.contact_array)
+        self.termination |= np.abs(self.track_state[0]) > self.corridor_width
+        self.termination |= self.drone.state[-1][0] < 0.1
         self.truncation |= self.step_count > self.max_steps
+
+    def compute_setpoint(self, action: np.ndarray) -> np.ndarray:
+        """Computes the setpoint to give the drone given the agent's action.
+
+        Args:
+            action (np.ndarray): action
+
+        Returns:
+            tuple[np.ndarray, bool]: the setpoint and whether to terminate the process
+        """
+        setpoint = action.copy()
+
+        # override the forward function with a boolean
+        setpoint[0] = (action[0] > 0.5) * self.target_velocity
+
+        # don't go higher if we're at the ceiling
+        if self.drone.state[-1][-1] >= self.corridor_height:
+            setpoint[2] = np.clip(setpoint[2], a_min=None, a_max=0.0)
+
+        return setpoint
 
     def step(self, action: np.ndarray):
         """Steps the environment.
@@ -348,7 +361,7 @@ class Environment(gymnasium.Env):
         """
         # unsqueeze the action to be usable in aviary
         self.action = action.copy()
-        self.aviary.set_setpoint(0, action)
+        self.aviary.set_setpoint(0, self.compute_setpoint(action))
 
         # step through env, the internal env updates a few steps before the outer env
         self.reward = 0.0
@@ -381,6 +394,8 @@ class Environment(gymnasium.Env):
         return self.state, self.reward, self.termination, self.truncation, self.infos
 
     def initialize_common_meshes(self):
+        """initialize_common_meshes.
+        """
         # rail meshes
         self.rail_mesh = np.ones(3) * -1
         self.rail_mesh[0] = obj_visual(
@@ -460,6 +475,13 @@ class Environment(gymnasium.Env):
             )
 
     def get_random_texture(self) -> int:
+        """get_random_texture.
+
+        Args:
+
+        Returns:
+            int:
+        """
         texture_path = self.texture_paths[
             np.random.randint(0, len(self.texture_paths) - 1)
         ]
@@ -469,6 +491,13 @@ class Environment(gymnasium.Env):
         return tex_id
 
     def render(self) -> np.ndarray:
+        """render.
+
+        Args:
+
+        Returns:
+            np.ndarray:
+        """
         _, _, rgbaImg, _, _ = self.aviary.getCameraImage(
             width=640,
             height=480,
