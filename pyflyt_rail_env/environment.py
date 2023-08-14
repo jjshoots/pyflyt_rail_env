@@ -153,16 +153,6 @@ class Environment(gymnasium.Env):
 
         # initialize the infos
         self.infos = dict()
-        self.infos["reward_breakdown"] = 0.0
-        self.infos["reward_breakdown_keys"] = []
-        self.infos["reward_breakdown_keys"].append("reward_vision")
-        self.infos["reward_breakdown_keys"].append("reward_progress")
-        self.infos["reward_breakdown_keys"].append("reward_speed")
-        self.infos["reward_breakdown_keys"].append("reward_collision")
-        self.infos["reward_breakdown_keys"].append("reward_target_loss")
-        self.infos["reward_breakdown_keys"].append("reward_height")
-        self.infos["reward_breakdown_keys"].append("reward_heading")
-        self.infos["reward_breakdown_keys"].append("reward_drift")
 
         # for reward tracking
         self.distance = 0.0
@@ -291,19 +281,16 @@ class Environment(gymnasium.Env):
         self.previous_distance = self.distance.copy()
 
     def compute_term_trunc_reward(self):
-        reward_breakdown = []
 
         # 0. vision reward is proportion of the image that is a railway
         vision_reward = np.sum(self.state["seg_img"]) / np.prod(
             self.state["seg_img"].shape
         )
         vision_reward *= 0.3
-        reward_breakdown.append(vision_reward)
 
         # 1. progress reward is the progress made toward the end of the nearest track
         progress_reward = self.progress
         progress_reward *= 50.0
-        reward_breakdown.append(progress_reward)
 
         # 2. penalize going too fast
         speed_penalty = float(
@@ -312,35 +299,26 @@ class Environment(gymnasium.Env):
         speed_penalty = min(speed_penalty, 2.0 * self.target_speed)
         speed_penalty = speed_penalty**2
         speed_penalty *= 1.0
-        reward_breakdown.append(-speed_penalty)
 
         # 3. collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
         collision_penalty *= 1000.0
-        reward_breakdown.append(-collision_penalty)
 
         # 4. target loss penalty
         target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
         target_loss_penalty = 1000.0 * target_loss
-        reward_breakdown.append(-target_loss_penalty)
 
         # 5. height penalty is how far the drone is from the target height
         height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
         height_penalty *= 1.0
-        reward_breakdown.append(-height_penalty)
 
         # 6. heading penalty
         heading_penalty = abs(self.track_state[1])
         heading_penalty *= 10.0
-        reward_breakdown.append(-heading_penalty)
 
         # 7. drift penalty
         drift_penalty = abs(self.track_state[0])
         drift_penalty *= 0.0
-        reward_breakdown.append(-drift_penalty)
-
-        # handle the reward breakdown for logging
-        self.infos["reward_breakdown"] += np.array(reward_breakdown)
 
         # sum up all rewards
         self.reward += vision_reward + progress_reward + 10.0
