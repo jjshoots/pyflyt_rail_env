@@ -308,7 +308,7 @@ class Environment(gymnasium.Env):
         target_loss_penalty = 1000.0 * target_loss
 
         # sum up all rewards
-        self.reward += 5.0
+        self.reward += 10.0
         self.reward -= (
             + drift_penalty
             + yaw_penalty
