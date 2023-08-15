@@ -288,16 +288,16 @@ class Environment(gymnasium.Env):
         """
 
         # drift penalty
-        drift_penalty = abs(self.track_state[0])
-        drift_penalty *= 1.0
+        drift_penalty = (self.track_state[0]) ** 2
+        drift_penalty *= 5.0
 
         # yaw penalty
-        yaw_penalty = abs(self.track_state[1])
-        yaw_penalty *= 1.0
+        yaw_penalty = (self.track_state[1]) ** 2
+        yaw_penalty *= 5.0
 
         # height penalty
-        height_penalty = abs(self.drone.state[-1][-1] - self.target_height)
-        height_penalty *= 1.0
+        height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
+        height_penalty *= 5.0
 
         # collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
@@ -305,7 +305,6 @@ class Environment(gymnasium.Env):
 
         # target loss penalty
         target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
-        target_loss |= abs(self.track_state[1] ) > self.corridor_max_angle
         target_loss_penalty = 1000.0 * target_loss
 
         # sum up all rewards
@@ -424,6 +423,7 @@ class Environment(gymnasium.Env):
         25% chance of rail, floor, and clutter being same texture
         25% chance of all different
         """
+        return
         chance = np.random.randint(4)
 
         if chance == 0:
