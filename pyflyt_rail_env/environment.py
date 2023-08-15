@@ -289,15 +289,15 @@ class Environment(gymnasium.Env):
 
         # drift penalty
         drift_penalty = (self.track_state[0]) ** 2
-        drift_penalty *= 5.0
+        drift_penalty *= 3.0
 
         # yaw penalty
         yaw_penalty = (self.track_state[1]) ** 2
-        yaw_penalty *= 5.0
+        yaw_penalty *= 3.0
 
         # height penalty
         height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
-        height_penalty *= 5.0
+        height_penalty *= 3.0
 
         # collision reward is negative of collision
         collision_penalty = np.any(self.aviary.contact_array)
