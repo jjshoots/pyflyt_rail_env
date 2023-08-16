@@ -85,6 +85,15 @@ class Rail:
         closest = np.argmin(difference)
         return self.rails[closest]
 
+    def change_rail_color(self, rgba: np.ndarray):
+        """change_rail_texture.
+
+        Args:
+            texture_id (int): texture_id
+        """
+        for i in self.rail_ids:
+            self.p.changeVisualShape(i, -1, rgbaColor=rgba)
+
     def change_rail_texture(self, texture_id: int):
         """change_rail_texture.
 

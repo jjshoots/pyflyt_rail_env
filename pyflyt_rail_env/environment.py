@@ -255,6 +255,9 @@ class Environment(gymnasium.Env):
         self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids)
         self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
 
+        # gotta colour the sky in the image
+        self.state["rgba_img"][:2, :, :] = self.state["rgba_img"][2:4, :, :]
+
     def compute_track_state(self):
         """
         This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
@@ -418,52 +421,29 @@ class Environment(gymnasium.Env):
     def update_textures(self):
         """
         randomly change the texture of the env
-        25% chance of the rail being same texture as floor
-        25% chance of clutter being same texture as rails
-        25% chance of rail, floor, and clutter being same texture
-        25% chance of all different
+        keep the rail roughly brown
+        50% chance of clutter and floor same texture
+        50% chance of all different
         """
-        chance = np.random.randint(4)
+        chance = np.random.randint(2)
+
+        for rail in self.rails:
+            rgba = np.random.rand(3) * 0.2
+            rgba += np.array([0.45, 0.1, 0.0])
+            rgba = np.append(rgba, 1.0)
+            rail.change_rail_color(rgba)
 
         if chance == 0:
-            # rail and floor same, clutter diff
+            # clutter and floor same
             tex_id = self.get_random_texture()
             for rail in self.rails:
-                rail.change_rail_texture(tex_id)
-            self.aviary.changeVisualShape(
-                self.aviary.planeId, -1, textureUniqueId=tex_id
-            )
+                rail.change_clutter_texture(tex_id)
 
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_clutter_texture(tex_id)
-        elif chance == 1:
-            # clutter and floor same, rail diff
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_clutter_texture(tex_id)
-            self.aviary.changeVisualShape(
-                self.aviary.planeId, -1, textureUniqueId=tex_id
-            )
-
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_rail_texture(tex_id)
-        elif chance == 2:
-            # all same
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_rail_texture(tex_id)
-                rail.change_clutter_texture(tex_id)
             self.aviary.changeVisualShape(
                 self.aviary.planeId, -1, textureUniqueId=tex_id
             )
         else:
-            # all same
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_rail_texture(tex_id)
-
+            # all different
             tex_id = self.get_random_texture()
             for rail in self.rails:
                 rail.change_clutter_texture(tex_id)
