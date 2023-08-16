@@ -35,7 +35,7 @@ class Environment(gymnasium.Env):
         corridor_height: float = 10.0,
         corridor_width: float = 5.0,
         corridor_max_angle: float = np.pi / 5.0,
-        cam_resolution: tuple[int, int] = (32, 32),
+        cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
         update_textures_seconds: int = 10,
