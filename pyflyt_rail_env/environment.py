@@ -24,7 +24,7 @@ class Environment(gymnasium.Env):
 
     def __init__(
         self,
-        max_duration_seconds: int = 60,
+        max_duration_seconds: int = 30,
         agent_hz: int = 30,
         render_mode: None | str = None,
         spawn_height: float = 1.5,
@@ -38,7 +38,7 @@ class Environment(gymnasium.Env):
         cam_resolution: tuple[int, int] = (32, 32),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
-        update_textures_seconds: int = 10,
+        update_textures_seconds: int = 5,
     ):
         """__init__.
 
@@ -179,7 +179,7 @@ class Environment(gymnasium.Env):
         drone_options["camera_resolution"] = self.cam_resolution
         drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees
         drone_options["camera_angle_degrees"] = -self.cam_angle_degrees
-        start_pos = np.array([[1.0, 0.0, self.spawn_height]])
+        start_pos = np.array([[3.0, 0.0, self.spawn_height]])
         start_orn = np.array([[0.0, 0.0, 0.0]])
         self.aviary = Aviary(
             start_pos=start_pos,
@@ -199,8 +199,16 @@ class Environment(gymnasium.Env):
 
         # start rails, the first rail in the list is the main rail to follow
         self.rails: list[Rail] = []
-        start_pos = np.array([0, 0, 0])
-        start_orn = np.array([0.5 * math.pi, 0, -0.5 * math.pi])
+
+        # randomly jitter the height of the rail
+        rail_height = (np.random.rand(1) * 0.25).item()
+        start_pos = np.array([0, 0, -rail_height])
+
+        # apply a random rotation to the rail
+        rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.5).item()
+        # start_orn = np.array([0.5 * math.pi, 0, -0.5 * np.pi])
+        start_orn = np.array([0.5 * math.pi, 0, -0.5 * np.pi + rail_rotation])
+
         self.rails.append(
             Rail(
                 p=self.aviary,
@@ -256,7 +264,11 @@ class Environment(gymnasium.Env):
         self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
 
         # gotta colour the sky in the image
-        self.state["rgba_img"][:2, :, :] = self.state["rgba_img"][2:4, :, :]
+        self.state["rgba_img"][:10, :, :] = self.state["rgba_img"][10:20, :, :]
+
+        # import cv2
+        # cv2.imshow("img", self.state["rgba_img"])
+        # cv2.waitKey(10)
 
     def compute_track_state(self):
         """
@@ -307,7 +319,7 @@ class Environment(gymnasium.Env):
         collision_penalty *= 1000.0
 
         # target loss penalty
-        target_loss = self.state["seg_img"].sum() < self.cam_resolution[0]
+        target_loss = self.state["seg_img"].sum() < self.cam_resolution[0] * 0.3
         target_loss_penalty = 1000.0 * target_loss
 
         # sum up all rewards
@@ -329,7 +341,7 @@ class Environment(gymnasium.Env):
         self.termination |= target_loss
         self.termination |= np.any(self.aviary.contact_array)
         self.termination |= np.abs(self.track_state[0]) > self.corridor_width
-        self.termination |= self.drone.state[-1][0] < 0.1
+        self.termination |= self.drone.state[-1][-1] < 0.5
         self.truncation |= self.step_count > self.max_steps
 
     def compute_setpoint(self, action: np.ndarray) -> np.ndarray:
