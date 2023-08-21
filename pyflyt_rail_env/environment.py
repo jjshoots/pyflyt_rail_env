@@ -32,9 +32,9 @@ class Environment(gymnasium.Env):
         target_velocity: float = 3.0,
         max_velocity: float = 3.0,
         max_yaw_rate: float = np.pi,
-        corridor_height: float = 10.0,
-        corridor_width: float = 5.0,
-        corridor_max_angle: float = np.pi / 5.0,
+        corridor_height: float = 5.0,
+        corridor_width: float = 3.0,
+        corridor_max_angle: float = np.pi / 4.0,
         cam_resolution: tuple[int, int] = (32, 32),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
@@ -87,11 +87,8 @@ class Environment(gymnasium.Env):
                 "attitude": spaces.Box(
                     low=-np.inf, high=np.inf, shape=(attitude_shape,), dtype=np.float64
                 ),
-                "rgba_img": spaces.Box(
-                    low=0.0, high=255.0, shape=(4, *cam_resolution), dtype=np.uint8
-                ),
                 "seg_img": spaces.Box(
-                    low=0.0, high=1024.0, shape=(4, *cam_resolution), dtype=np.uint8
+                    low=0.0, high=1.0, shape=(*cam_resolution, 1), dtype=np.uint8
                 ),
             }
         )
@@ -123,22 +120,6 @@ class Environment(gymnasium.Env):
         self.texture_paths = glob.glob(
             os.path.join(tex_dir, "**", "*.jpg"), recursive=True
         )
-
-        # form the array for inverse projection later
-        seg_centre = (self.cam_resolution[1] + 1) / 2
-        rad_per_pixel = (cam_FOV_degrees / 180 * math.pi) / self.cam_resolution[1]
-        xspace = np.arange(self.cam_resolution[0], 0, -1)
-        yspace = np.arange(self.cam_resolution[1], 0, -1)
-        angle_array = np.stack(np.meshgrid(xspace, yspace), axis=-1) - seg_centre
-        angle_array *= rad_per_pixel
-        angle_array[:, :, 1] += cam_angle_degrees / 180.0 * math.pi
-        angle_array = angle_array.reshape(-1, 2)
-        y = np.sin(angle_array[:, 1]) / abs(np.cos(angle_array[:, 1]))
-        x = np.tan(angle_array[:, 0]) / abs(np.cos(angle_array[:, 1]))
-        self.inv_proj = np.stack((x, y), axis=-1)
-        # plt.scatter(self.inv_proj[:, 0], self.inv_proj[:, 1])
-        # plt.show()
-        # exit()
 
         """ INITIALIZE """
         self.aviary: Aviary
@@ -205,8 +186,7 @@ class Environment(gymnasium.Env):
         start_pos = np.array([0, 0, -rail_height])
 
         # apply a random rotation to the rail
-        rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.5).item()
-        # start_orn = np.array([0.5 * math.pi, 0, -0.5 * np.pi])
+        rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.25).item()
         start_orn = np.array([0.5 * math.pi, 0, -0.5 * np.pi + rail_rotation])
 
         self.rails.append(
@@ -260,54 +240,32 @@ class Environment(gymnasium.Env):
         self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
 
         # grab the image
-        self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids)
-        self.state["rgba_img"] = self.drone.rgbaImg.astype(np.uint8)
-
-        # gotta colour the sky in the image
-        self.state["rgba_img"][:10, :, :] = self.state["rgba_img"][10:20, :, :]
-
-        # import cv2
-        # cv2.imshow("img", self.state["rgba_img"])
-        # cv2.waitKey(10)
+        self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids) * 1.0
 
     def compute_track_state(self):
         """
         This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
-        if np.sum(self.state["seg_img"]) > self.cam_resolution[1]:
-            proj = (
-                self.inv_proj[self.state["seg_img"].flatten()]
-                * self.drone.state[-1][-1]
-            )
+        # grab the closest rail and compute the angle and vector
+        segment = self.rails[0].closest(self.drone.state[-1])
+        seg_dist = segment.base_pos[:2] - self.drone.state[-1][:2]
+        seg_angle = np.arctan2(*(segment.end_pos[:2] - segment.base_pos[:2])[::-1])
 
-            poly = polynomial.Polynomial.fit(proj[:, 1], proj[:, 0], 2).convert(
-                domain=(-1, 1)
-            )
-            pos = polynomial.polyval(1.0, [*poly])
-            orn = math.atan(polynomial.polyval(1.0, [*poly.deriv()]))
+        # compute the angle and distance relative to the drone
+        angle = seg_angle - self.drone.state[1][-1]
+        distance = seg_dist[1] * np.cos(seg_angle) - seg_dist[0] * np.sin(seg_angle)
 
-            # plt.scatter(proj[:, 1], proj[:, 0])
-            # plt.plot(*poly.linspace(n=100, domain=(0, np.max(proj[:, 1]))), "y")
-            # plt.show()
-            # exit()
-
-            # normalize
-            state = np.array([pos, orn])
-            self.track_state = np.clip(state, -0.99999, 0.99999)
-
-        else:
-            self.track_state = np.array([0.0, 0.0])
+        self.track_state = np.array([distance, angle])
 
     def compute_term_trunc_reward(self):
-        """compute_term_trunc_reward.
-        """
+        """compute_term_trunc_reward."""
 
         # drift penalty
-        drift_penalty = (self.track_state[0]) ** 2
+        drift_penalty = self.track_state[0] ** 2
         drift_penalty *= 3.0
 
         # yaw penalty
-        yaw_penalty = (self.track_state[1]) ** 2
+        yaw_penalty = self.track_state[1] ** 2
         yaw_penalty *= 3.0
 
         # height penalty
@@ -315,21 +273,33 @@ class Environment(gymnasium.Env):
         height_penalty *= 3.0
 
         # collision reward is negative of collision
-        collision_penalty = np.any(self.aviary.contact_array)
-        collision_penalty *= 1000.0
+        collision = np.any(self.aviary.contact_array)
+        collision_penalty = 1000.0 * collision
 
         # target loss penalty
-        target_loss = self.state["seg_img"].sum() < self.cam_resolution[0] * 0.3
+        target_loss = np.abs(self.track_state[0]) > self.corridor_width
+        target_loss |= np.abs(self.track_state[1]) > self.corridor_max_angle
         target_loss_penalty = 1000.0 * target_loss
+
+        # too low
+        too_low = self.drone.state[-1][-1] < 0.5
+        too_low_penalty = 1000.0 * too_low
+
+        # terminate run penalty
+        stop_run = self.action[0] < 0.5
+        stop_run &= np.linalg.norm(self.drone.state[-2]) < 1.0
+        stop_run_penalty = 100.0 * stop_run
 
         # sum up all rewards
         self.reward += 10.0
         self.reward -= (
-            + drift_penalty
+            +drift_penalty
             + yaw_penalty
             + height_penalty
             + collision_penalty
             + target_loss_penalty
+            + too_low_penalty
+            + stop_run_penalty
         )
 
         # handle termination truncation
@@ -339,10 +309,15 @@ class Environment(gymnasium.Env):
         # - drifted too far
         # - drone slowed to a close
         self.termination |= target_loss
-        self.termination |= np.any(self.aviary.contact_array)
-        self.termination |= np.abs(self.track_state[0]) > self.corridor_width
-        self.termination |= self.drone.state[-1][-1] < 0.5
+        self.termination |= collision
+        self.termination |= too_low
+        self.termination |= stop_run
         self.truncation |= self.step_count > self.max_steps
+
+        self.infos["target_loss"] = target_loss
+        self.infos["collision"] = collision
+        self.infos["run_stopped"] = stop_run
+        self.infos["too_low"] = too_low
 
     def compute_setpoint(self, action: np.ndarray) -> np.ndarray:
         """Computes the setpoint to give the drone given the agent's action.
@@ -408,8 +383,7 @@ class Environment(gymnasium.Env):
         return self.state, self.reward, self.termination, self.truncation, self.infos
 
     def initialize_common_meshes(self):
-        """initialize_common_meshes.
-        """
+        """initialize_common_meshes."""
         # rail meshes
         self.rail_mesh = np.ones(3) * -1
         self.rail_mesh[0] = obj_visual(
@@ -437,6 +411,7 @@ class Environment(gymnasium.Env):
         50% chance of clutter and floor same texture
         50% chance of all different
         """
+        return
         chance = np.random.randint(2)
 
         for rail in self.rails:

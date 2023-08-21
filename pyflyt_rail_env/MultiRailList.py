@@ -47,8 +47,9 @@ class Rail:
         # list of rail ids
         self.rail_ids = np.array([self.rails[0].Id], dtype=np.int32)
 
-        # array of [n, 3] where 3 is xyz base position of each rail segment
-        self.rail_pos = np.array([self.rails[0].base_pos], dtype=np.float64)
+        # array of [n, 3] where 3 is xyz base and end position of each rail segment
+        self.rail_base = np.array([self.rails[0].base_pos], dtype=np.float64)
+        self.rail_end = np.array([self.rails[0].base_pos], dtype=np.float64)
 
     @property
     def head(self) -> SingleRail:
@@ -81,8 +82,9 @@ class Rail:
         Returns:
             SingleRail:
         """
-        difference = np.linalg.norm(self.rail_pos[:, :2] - drone_pos[:2], axis=-1)
-        closest = np.argmin(difference)
+        base_diff = np.linalg.norm(self.rail_base[:, :2] - drone_pos[:2], axis=-1)
+        end_diff = np.linalg.norm(self.rail_end[:, :2] - drone_pos[:2], axis=-1)
+        closest = np.argmin(base_diff + end_diff)
         return self.rails[closest]
 
     def change_rail_color(self, rgba: np.ndarray):
@@ -139,7 +141,8 @@ class Rail:
             for i in self.rails[0].clutter_ids:
                 self.p.removeBody(i)
             self.rail_ids = self.rail_ids[1:]
-            self.rail_pos = self.rail_pos[1:]
+            self.rail_base = self.rail_base[1:]
+            self.rail_end = self.rail_end[1:]
             self.rails.pop(0)
 
         # if the tail is too near, add a new one
@@ -158,7 +161,10 @@ class Rail:
                 )
             )
             self.rail_ids = np.append(self.rail_ids, self.rails[-1].Id)
-            self.rail_pos = np.append(self.rail_pos, [self.rails[-1].base_pos], axis=0)
+            self.rail_base = np.append(
+                self.rail_base, [self.rails[-1].base_pos], axis=0
+            )
+            self.rail_end = np.append(self.rail_end, [self.rails[-1].end_pos], axis=0)
 
         return direction
 
