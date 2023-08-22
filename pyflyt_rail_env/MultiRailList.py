@@ -44,8 +44,9 @@ class Rail:
             )
         )
 
-        # list of rail ids
+        # list of rail and clutter ids
         self.rail_ids = np.array([self.rails[0].Id], dtype=np.int32)
+        self.clutter_ids = np.array([])
 
         # array of [n, 3] where 3 is xyz base and end position of each rail segment
         self.rail_base = np.array([self.rails[0].base_pos], dtype=np.float64)
@@ -114,6 +115,11 @@ class Rail:
         for rails in self.rails:
             for i in rails.clutter_ids:
                 self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
+
+    def update_clutter_ids(self):
+        """update_clutter_ids.
+        """
+        self.clutter_ids = np.concatenate([r.clutter_ids for r in self.rails])
 
     def handle_rail_bounds(self, drone_pos: np.ndarray, direction: int = -1) -> int:
         """Extends and deletes rails on the fly
@@ -246,6 +252,20 @@ class SingleRail:
         )
 
         self.clutter_ids = []
+
+    def add_obstacle(self):
+        """add_obstacle.
+        """
+        collision_id = self.p.createCollisionShape(
+            shapeType=self.p.GEOM_BOX,
+            halfExtents=np.random.rand(3) * 2.0,
+        )
+        self.clutter_ids.append(
+            self.p.createMultiBody(
+                baseCollisionShapeIndex=collision_id,
+                basePosition=self.base_pos + ((np.random.rand(3) - 0.5) * 6.0),
+            )
+        )
 
     def add_clutter(
         self,

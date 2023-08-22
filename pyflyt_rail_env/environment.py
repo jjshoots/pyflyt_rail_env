@@ -24,8 +24,8 @@ class Environment(gymnasium.Env):
 
     def __init__(
         self,
-        max_duration_seconds: int = 30,
-        agent_hz: int = 30,
+        max_duration_seconds: int = 60,
+        agent_hz: int = 10,
         render_mode: None | str = None,
         spawn_height: float = 1.5,
         target_height: float = 1.0,
@@ -38,7 +38,6 @@ class Environment(gymnasium.Env):
         cam_resolution: tuple[int, int] = (32, 32),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
-        update_textures_seconds: int = 5,
     ):
         """__init__.
 
@@ -57,7 +56,6 @@ class Environment(gymnasium.Env):
             cam_resolution (tuple[int, int]): cam_resolution
             cam_FOV_degrees (int): cam_FOV_degrees
             cam_angle_degrees (int): cam_angle_degrees
-            update_textures_seconds (int): update_textures_seconds
         """
         if 120 % agent_hz != 0:
             lowest = int(120 / (int(120 / agent_hz) + 1))
@@ -88,7 +86,7 @@ class Environment(gymnasium.Env):
                     low=-np.inf, high=np.inf, shape=(attitude_shape,), dtype=np.float64
                 ),
                 "seg_img": spaces.Box(
-                    low=0.0, high=1.0, shape=(*cam_resolution, 1), dtype=np.uint8
+                    low=0.0, high=1.0, shape=(*cam_resolution, 2), dtype=np.uint8
                 ),
             }
         )
@@ -105,20 +103,13 @@ class Environment(gymnasium.Env):
         self.cam_angle_degrees = cam_angle_degrees
         self.max_steps = int(agent_hz * max_duration_seconds)
         self.env_step_ratio = int(120 / agent_hz)
-        self.update_textures_step = update_textures_seconds * agent_hz
 
         # where the model files are located
         self.rails_dir: str = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "./models/rails/"
         )
-        self.clutter_dir: str = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "./models/clutter/"
-        )
-        tex_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "./models/textures/images/"
-        )
-        self.texture_paths = glob.glob(
-            os.path.join(tex_dir, "**", "*.jpg"), recursive=True
+        self.obstacle_dir: str = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "./models/obstacles/"
         )
 
         """ INITIALIZE """
@@ -178,9 +169,6 @@ class Environment(gymnasium.Env):
         # preload the common meshes
         self.initialize_common_meshes()
 
-        # start rails, the first rail in the list is the main rail to follow
-        self.rails: list[Rail] = []
-
         # randomly jitter the height of the rail
         rail_height = (np.random.rand(1) * 0.25).item()
         start_pos = np.array([0, 0, -rail_height])
@@ -189,20 +177,15 @@ class Environment(gymnasium.Env):
         rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.25).item()
         start_orn = np.array([0.5 * math.pi, 0, -0.5 * np.pi + rail_rotation])
 
-        self.rails.append(
-            Rail(
-                p=self.aviary,
-                start_pos=start_pos,
-                start_orn=start_orn,
-                visual_ids=self.rail_mesh,
-            )
+        self.rail = Rail(
+            p=self.aviary,
+            start_pos=start_pos,
+            start_orn=start_orn,
+            visual_ids=self.rail_mesh,
         )
 
         # initialize the track state
         self.track_state = np.array([0.0, 0.0])
-
-        # update all textures
-        self.update_textures()
 
         # wait for env to stabilize
         for _ in range(10):
@@ -239,15 +222,17 @@ class Environment(gymnasium.Env):
         # combine everything
         self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
 
-        # grab the image
-        self.state["seg_img"] = np.isin(self.drone.segImg, self.rails[0].rail_ids) * 1.0
+        # grab the segmentation image
+        rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids) * 1.0
+        clutter_seg = np.isin(self.drone.segImg, self.rail.clutter_ids) * 1.0
+        self.state["seg_img"] = np.concatenate([rail_seg, clutter_seg], axis=-1)
 
     def compute_track_state(self):
         """
         This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
         """
         # grab the closest rail and compute the angle and vector
-        segment = self.rails[0].closest(self.drone.state[-1])
+        segment = self.rail.closest(self.drone.state[-1])
         seg_dist = segment.base_pos[:2] - self.drone.state[-1][:2]
         seg_angle = np.arctan2(*(segment.end_pos[:2] - segment.base_pos[:2])[::-1])
 
@@ -272,7 +257,7 @@ class Environment(gymnasium.Env):
         height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
         height_penalty *= 3.0
 
-        # collision reward is negative of collision
+        # collision penalty
         collision = np.any(self.aviary.contact_array)
         collision_penalty = 1000.0 * collision
 
@@ -288,7 +273,7 @@ class Environment(gymnasium.Env):
         # terminate run penalty
         stop_run = self.action[0] < 0.5
         stop_run &= np.linalg.norm(self.drone.state[-2]) < 1.0
-        stop_run_penalty = 100.0 * stop_run
+        stop_run_penalty = 0.0 * stop_run
 
         # sum up all rewards
         self.reward += 10.0
@@ -363,24 +348,34 @@ class Environment(gymnasium.Env):
             self.compute_track_state()
             self.compute_term_trunc_reward()
 
-        # handle the rails and clutter
-        spawn_direction = self.rails[0].handle_rail_bounds(self.drone.state[-1])
-        if spawn_direction == 0 and False:
-            self.rails[0].tail.add_clutter(
-                self.tunnel_visual,
-                self.tunnel_collision,
-                np.array([0, 10.125, 0]),
-                np.array([0, 0, 0]),
-            )
-
-        # change the texture of the floor
-        if self.step_count % self.update_textures_step == 1:
-            self.update_textures()
+        # spawn in some obstacles
+        self.spawn_obstacle_clutter()
+        self.aviary.register_all_new_bodies()
 
         # increment step count
         self.step_count += 1
 
         return self.state, self.reward, self.termination, self.truncation, self.infos
+
+    def spawn_obstacle_clutter(self):
+        # handle the rail bounds
+        spawn_direction = self.rail.handle_rail_bounds(self.drone.state[-1])
+
+        # maybe spawn an obstacle
+        if np.random.rand() < 0.8 and spawn_direction >= 0:
+            self.rail.tail.add_obstacle()
+            self.rail.update_clutter_ids()
+
+        return
+
+        # spawn_tunnel
+        if spawn_direction == 0:
+            self.rail.tail.add_clutter(
+                self.tunnel_visual,
+                self.tunnel_collision,
+                np.array([0, 10.125, 0]),
+                np.array([0, 0, 0]),
+            )
 
     def initialize_common_meshes(self):
         """initialize_common_meshes."""
@@ -397,64 +392,12 @@ class Environment(gymnasium.Env):
         )
 
         # clutter meshes
-        self.tunnel_visual = obj_visual(self.aviary, self.clutter_dir + "tunnel.obj")
+        self.tunnel_visual = obj_visual(self.aviary, self.obstacle_dir + "tunnel.obj")
 
         # collision meshes for the clutter
         self.tunnel_collision = obj_collision(
-            self.aviary, self.clutter_dir + "tunnel.obj", concave=True
+            self.aviary, self.obstacle_dir + "tunnel.obj", concave=True
         )
-
-    def update_textures(self):
-        """
-        randomly change the texture of the env
-        keep the rail roughly brown
-        50% chance of clutter and floor same texture
-        50% chance of all different
-        """
-        return
-        chance = np.random.randint(2)
-
-        for rail in self.rails:
-            rgba = np.random.rand(3) * 0.2
-            rgba += np.array([0.45, 0.1, 0.0])
-            rgba = np.append(rgba, 1.0)
-            rail.change_rail_color(rgba)
-
-        if chance == 0:
-            # clutter and floor same
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_clutter_texture(tex_id)
-
-            self.aviary.changeVisualShape(
-                self.aviary.planeId, -1, textureUniqueId=tex_id
-            )
-        else:
-            # all different
-            tex_id = self.get_random_texture()
-            for rail in self.rails:
-                rail.change_clutter_texture(tex_id)
-
-            tex_id = self.get_random_texture()
-            self.aviary.changeVisualShape(
-                self.aviary.planeId, -1, textureUniqueId=tex_id
-            )
-
-    def get_random_texture(self) -> int:
-        """get_random_texture.
-
-        Args:
-
-        Returns:
-            int:
-        """
-        texture_path = self.texture_paths[
-            np.random.randint(0, len(self.texture_paths) - 1)
-        ]
-        tex_id = -1
-        while tex_id < 0:
-            tex_id = self.aviary.loadTexture(texture_path)
-        return tex_id
 
     def render(self) -> np.ndarray:
         """render.
