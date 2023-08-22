@@ -117,8 +117,7 @@ class Rail:
                 self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
 
     def update_clutter_ids(self):
-        """update_clutter_ids.
-        """
+        """update_clutter_ids."""
         self.clutter_ids = np.concatenate([r.clutter_ids for r in self.rails])
 
     def handle_rail_bounds(self, drone_pos: np.ndarray, direction: int = -1) -> int:
@@ -254,8 +253,7 @@ class SingleRail:
         self.clutter_ids = []
 
     def add_obstacle(self):
-        """add_obstacle.
-        """
+        """add_obstacle."""
         collision_id = self.p.createCollisionShape(
             shapeType=self.p.GEOM_BOX,
             halfExtents=np.random.rand(3) * 2.0,
