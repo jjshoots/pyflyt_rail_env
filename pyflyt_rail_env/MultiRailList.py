@@ -44,9 +44,9 @@ class Rail:
             )
         )
 
-        # list of rail and clutter ids
+        # list of rail and obstacle ids
         self.rail_ids = np.array([self.rails[0].Id], dtype=np.int32)
-        self.clutter_ids = np.array([])
+        self.obstacle_ids = np.array([])
 
         # array of [n, 3] where 3 is xyz base and end position of each rail segment
         self.rail_base = np.array([self.rails[0].base_pos], dtype=np.float64)
@@ -106,19 +106,19 @@ class Rail:
         for i in self.rail_ids:
             self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
 
-    def change_clutter_texture(self, texture_id: int):
-        """change_clutter_texture.
+    def change_obstacle_texture(self, texture_id: int):
+        """change_obstacle_texture.
 
         Args:
             texture_id (int): texture_id
         """
         for rails in self.rails:
-            for i in rails.clutter_ids:
+            for i in rails.obstacle_ids:
                 self.p.changeVisualShape(i, -1, textureUniqueId=texture_id)
 
-    def update_clutter_ids(self):
-        """update_clutter_ids."""
-        self.clutter_ids = np.concatenate([r.clutter_ids for r in self.rails])
+    def update_obstacle_ids(self):
+        """update_obstacle_ids."""
+        self.obstacle_ids = np.concatenate([r.obstacle_ids for r in self.rails])
 
     def handle_rail_bounds(self, drone_pos: np.ndarray, direction: int = -1) -> int:
         """Extends and deletes rails on the fly
@@ -143,7 +143,7 @@ class Rail:
         # if the head is too far, delete
         if head_distance > 20:
             self.p.removeBody(self.rail_ids[0])
-            for i in self.rails[0].clutter_ids:
+            for i in self.rails[0].obstacle_ids:
                 self.p.removeBody(i)
             self.rail_ids = self.rail_ids[1:]
             self.rail_base = self.rail_base[1:]
@@ -250,7 +250,7 @@ class SingleRail:
             baseOrientation=self.p.getQuaternionFromEuler(self.base_orn),
         )
 
-        self.clutter_ids = []
+        self.obstacle_ids = []
 
     def add_obstacle(
         self,
@@ -263,7 +263,7 @@ class SingleRail:
         base_orn = np.zeros(3)
         base_orn[-1] = self.base_orn[-1]
         orientation = self.p.getQuaternionFromEuler(base_orn + orn_offset)
-        self.clutter_ids.append(
+        self.obstacle_ids.append(
             self.p.createMultiBody(
                 baseCollisionShapeIndex=collision_id,
                 basePosition=self.base_pos + pos_offset,

@@ -223,8 +223,8 @@ class Environment(gymnasium.Env):
 
         # grab the segmentation image
         rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids) * 1.0
-        clutter_seg = np.isin(self.drone.segImg, self.rail.clutter_ids) * 1.0
-        self.state["seg_img"] = np.concatenate([rail_seg, clutter_seg], axis=-1)
+        obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids) * 1.0
+        self.state["seg_img"] = np.concatenate([rail_seg, obstacle_seg], axis=-1)
 
     def compute_track_state(self):
         """
@@ -348,7 +348,7 @@ class Environment(gymnasium.Env):
             self.compute_term_trunc_reward()
 
         # spawn in some obstacles
-        self.spawn_obstacle_clutter()
+        self.spawn_obstacle()
         self.aviary.register_all_new_bodies()
 
         # increment step count
@@ -356,7 +356,7 @@ class Environment(gymnasium.Env):
 
         return self.state, self.reward, self.termination, self.truncation, self.infos
 
-    def spawn_obstacle_clutter(self):
+    def spawn_obstacle(self):
         # handle the rail bounds
         spawn_direction = self.rail.handle_rail_bounds(self.drone.state[-1])
 
@@ -377,11 +377,11 @@ class Environment(gymnasium.Env):
                 # spawn a box
                 collision_id = self.aviary.createCollisionShape(
                     shapeType=self.aviary.GEOM_BOX,
-                    halfExtents=np.random.rand(3) * 2.0,
+                    halfExtents=np.random.rand(3) * 3.0,
                 )
             else:
                 # spawn the arch
-                mesh_scale = np.random.rand(3) * 0.2 + 0.8
+                mesh_scale = np.random.rand(3) + 0.5
                 collision_id = obj_collision(
                     self.aviary,
                     self.obstacle_dir + "arch.obj",
@@ -391,7 +391,7 @@ class Environment(gymnasium.Env):
 
             self.rail.tail.add_obstacle(collision_id, pos_offset=pos_offset)
 
-        self.rail.update_clutter_ids()
+        self.rail.update_obstacle_ids()
 
     def initialize_common_meshes(self):
         """initialize_common_meshes."""
