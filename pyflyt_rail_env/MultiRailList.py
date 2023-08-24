@@ -252,49 +252,21 @@ class SingleRail:
 
         self.clutter_ids = []
 
-    def add_obstacle(self):
+    def add_obstacle(
+        self,
+        collision_id: int,
+        pos_offset: np.ndarray = np.zeros(3),
+        orn_offset: np.ndarray = np.zeros(3),
+    ):
         """add_obstacle."""
-        collision_id = self.p.createCollisionShape(
-            shapeType=self.p.GEOM_BOX,
-            halfExtents=np.random.rand(3) * 2.0,
-        )
+        # for orientation, only grab the yaw
+        base_orn = np.zeros(3)
+        base_orn[-1] = self.base_orn[-1]
+        orientation = self.p.getQuaternionFromEuler(base_orn + orn_offset)
         self.clutter_ids.append(
             self.p.createMultiBody(
                 baseCollisionShapeIndex=collision_id,
-                basePosition=self.base_pos + ((np.random.rand(3) - 0.5) * 6.0),
-            )
-        )
-
-    def add_clutter(
-        self,
-        visual_id: int,
-        collision_id: int,
-        pos_offset: np.ndarray,
-        orn_offset: np.ndarray,
-    ):
-        """add_clutter.
-
-        Args:
-            visual_id (int): visual_id
-            collision_id (int): collision_id
-            pos_offset (np.ndarray): pos_offset
-            orn_offset (np.ndarray): orn_offset
-        """
-        # funky transforms
-        c, s = np.cos(-self.base_orn[-1]), np.sin(-self.base_orn[-1])
-        rot_mat = np.array([[c, -s], [s, c]]).T
-        base_pos = self.base_pos + np.array(
-            [*np.matmul(rot_mat, pos_offset[:2]), pos_offset[-1]]
-        )
-
-        self.clutter_ids.append(
-            loadOBJ(
-                self.p,
-                visualId=visual_id,
-                collisionId=collision_id,
-                basePosition=base_pos,
-                baseOrientation=self.p.getQuaternionFromEuler(
-                    self.base_orn + orn_offset
-                ),
+                basePosition=self.base_pos + pos_offset,
+                baseOrientation=orientation,
             )
         )

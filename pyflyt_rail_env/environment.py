@@ -1,13 +1,12 @@
 """QuadX Railway Environment with domain randomization."""
 from __future__ import annotations
 
-import glob
 import math
 import os
 
+import random
 import gymnasium
 import numpy as np
-import numpy.polynomial.polynomial as polynomial
 from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
 from PyFlyt.core.load_objs import obj_collision, obj_visual
@@ -35,7 +34,7 @@ class Environment(gymnasium.Env):
         corridor_height: float = 5.0,
         corridor_width: float = 3.0,
         corridor_max_angle: float = np.pi / 4.0,
-        cam_resolution: tuple[int, int] = (32, 32),
+        cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 70,
     ):
@@ -361,21 +360,38 @@ class Environment(gymnasium.Env):
         # handle the rail bounds
         spawn_direction = self.rail.handle_rail_bounds(self.drone.state[-1])
 
-        # maybe spawn an obstacle
-        if np.random.rand() < 0.8 and spawn_direction >= 0:
-            self.rail.tail.add_obstacle()
-            self.rail.update_clutter_ids()
+        # if nothing spawned just return
+        if spawn_direction < 0:
+            return
 
-        return
+        for _ in range(3):
+            # random chance that an obstacle will appear
+            if not random.getrandbits:
+                continue
 
-        # spawn_tunnel
-        if spawn_direction == 0:
-            self.rail.tail.add_clutter(
-                self.tunnel_visual,
-                self.tunnel_collision,
-                np.array([0, 10.125, 0]),
-                np.array([0, 0, 0]),
-            )
+            # random chance between box and arch
+            chance = np.random.randint(2)
+            pos_offset = (np.random.rand(3) - 0.5) * 4.0
+
+            if chance == 0:
+                # spawn a box
+                collision_id = self.aviary.createCollisionShape(
+                    shapeType=self.aviary.GEOM_BOX,
+                    halfExtents=np.random.rand(3) * 2.0,
+                )
+            else:
+                # spawn the arch
+                mesh_scale = np.random.rand(3) * 0.2 + 0.8
+                collision_id = obj_collision(
+                    self.aviary,
+                    self.obstacle_dir + "arch.obj",
+                    concave=True,
+                    meshScale=mesh_scale,
+                )
+
+            self.rail.tail.add_obstacle(collision_id, pos_offset=pos_offset)
+
+        self.rail.update_clutter_ids()
 
     def initialize_common_meshes(self):
         """initialize_common_meshes."""
@@ -389,14 +405,6 @@ class Environment(gymnasium.Env):
         )
         self.rail_mesh[2] = obj_visual(
             self.aviary, self.rails_dir + "rail_turn_right.obj"
-        )
-
-        # clutter meshes
-        self.tunnel_visual = obj_visual(self.aviary, self.obstacle_dir + "tunnel.obj")
-
-        # collision meshes for the clutter
-        self.tunnel_collision = obj_collision(
-            self.aviary, self.obstacle_dir + "tunnel.obj", concave=True
         )
 
     def render(self) -> np.ndarray:
