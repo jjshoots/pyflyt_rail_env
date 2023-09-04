@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 from pybullet_utils import bullet_client
-from PyFlyt.core.load_objs import loadOBJ
+from PyFlyt.core import loadOBJ
 
 
 class Rail:

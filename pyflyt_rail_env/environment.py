@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import math
 import os
-
 import random
+
 import gymnasium
 import numpy as np
 from gymnasium import spaces
 from PyFlyt.core.aviary import Aviary
-from PyFlyt.core.load_objs import obj_collision, obj_visual
+from PyFlyt.core import obj_collision, obj_visual
 
 from .MultiRailList import Rail
 
@@ -36,7 +36,7 @@ class Environment(gymnasium.Env):
         corridor_max_angle: float = np.pi / 4.0,
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
-        cam_angle_degrees: int = 70,
+        cam_angle_degrees: int = 0,
     ):
         """__init__.
 
@@ -78,7 +78,7 @@ class Environment(gymnasium.Env):
         )
 
         # observation space
-        attitude_shape = 6 + self.action_space.shape[0]
+        attitude_shape = 4
         self.observation_space = spaces.Dict(
             {
                 "attitude": spaces.Box(
@@ -144,7 +144,8 @@ class Environment(gymnasium.Env):
 
         # initialize the aviary
         drone_options = dict()
-        drone_options["drone_model"] = "primitive_drone"
+        drone_options["model_dir"] = os.path.join(os.path.dirname(__file__), "models/")
+        drone_options["drone_model"] = "modded_drone"
         drone_options["use_camera"] = True
         drone_options["use_gimbal"] = True
         drone_options["camera_resolution"] = self.cam_resolution
@@ -169,8 +170,8 @@ class Environment(gymnasium.Env):
         self.initialize_common_meshes()
 
         # randomly jitter the height of the rail
-        rail_height = (np.random.rand(1) * 0.25).item()
-        start_pos = np.array([0, 0, -rail_height])
+        # rail_height = (np.random.rand(1) * 0.25).item()
+        start_pos = np.array([0, 0, -0.2])
 
         # apply a random rotation to the rail
         rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.25).item()
@@ -209,22 +210,33 @@ class Environment(gymnasium.Env):
         """Computes the state of the current timestep.
 
         This returns the observation.
-        - ang_vel (vector of 3 values)
         - lin_vel (vector of 3 values)
+        - height (one scalar)
         - previous_action (vector of 4 values)
         """
         # get the relevant states
         raw_state = self.aviary.state(0)
-        ang_vel = raw_state[0]
         lin_vel = raw_state[2]
+        height = raw_state[-1][-1]
 
         # combine everything
-        self.state["attitude"] = np.array([*ang_vel, *lin_vel, *self.action])
+        self.state["attitude"] = np.array([*lin_vel, height])
 
         # grab the segmentation image
         rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids) * 1.0
         obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids) * 1.0
         self.state["seg_img"] = np.concatenate([rail_seg, obstacle_seg], axis=-1)
+
+        # if self.step_count > 10:
+        #     import matplotlib.pyplot as plt
+        #     import matplotlib
+        #     try:
+        #         matplotlib.use("TKAgg")
+        #     except Exception as e:
+        #         pass
+        #     plt.imshow(self.state["seg_img"][..., 0])
+        #     plt.show()
+        #     exit()
 
     def compute_track_state(self):
         """
@@ -364,7 +376,7 @@ class Environment(gymnasium.Env):
         if spawn_direction < 0:
             return
 
-        for _ in range(3):
+        for _ in range(1):
             # random chance that an obstacle will appear
             if not random.getrandbits:
                 continue
