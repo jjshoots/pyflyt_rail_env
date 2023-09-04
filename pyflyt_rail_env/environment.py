@@ -132,7 +132,8 @@ class Environment(gymnasium.Env):
         self.termination = False
         self.truncation = False
         self.state = dict()
-        self.action = np.zeros(*self.action_space.shape)
+        self.previous_action = np.zeros((*self.action_space.shape))
+        self.action = np.zeros((*self.action_space.shape))
         self.step_count = 0
 
         # initialize the infos
@@ -256,6 +257,10 @@ class Environment(gymnasium.Env):
     def compute_term_trunc_reward(self):
         """compute_term_trunc_reward."""
 
+        # penalty for making big velocity changes
+        action_penalty = np.linalg.norm(self.previous_action[1:] - self.action[1:])
+        action_penalty *= 0.3
+
         # drift penalty
         drift_penalty = self.track_state[0] ** 2
         drift_penalty *= 3.0
@@ -289,7 +294,8 @@ class Environment(gymnasium.Env):
         # sum up all rewards
         self.reward += 10.0
         self.reward -= (
-            +drift_penalty
+            + action_penalty
+            + drift_penalty
             + yaw_penalty
             + height_penalty
             + collision_penalty
@@ -345,6 +351,7 @@ class Environment(gymnasium.Env):
             state, reward, termination, truncation, info
         """
         # unsqueeze the action to be usable in aviary
+        self.previous_action = self.action.copy()
         self.action = action.copy()
         self.aviary.set_setpoint(0, self.compute_setpoint(action))
 
