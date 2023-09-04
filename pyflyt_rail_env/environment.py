@@ -132,8 +132,8 @@ class Environment(gymnasium.Env):
         self.termination = False
         self.truncation = False
         self.state = dict()
-        self.previous_action = np.zeros((*self.action_space.shape))
-        self.action = np.zeros((*self.action_space.shape))
+        self.previous_action = np.zeros(*self.action_space.shape)
+        self.action = np.zeros(*self.action_space.shape)
         self.step_count = 0
 
         # initialize the infos
