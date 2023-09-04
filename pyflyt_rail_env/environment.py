@@ -32,7 +32,7 @@ class Environment(gymnasium.Env):
         max_velocity: float = 3.0,
         max_yaw_rate: float = np.pi,
         corridor_height: float = 5.0,
-        corridor_width: float = 3.0,
+        corridor_width: float = 5.0,
         corridor_max_angle: float = np.pi / 4.0,
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
@@ -78,7 +78,7 @@ class Environment(gymnasium.Env):
         )
 
         # observation space
-        attitude_shape = 4
+        attitude_shape = 4 + self.action_space.shape[0]
         self.observation_space = spaces.Dict(
             {
                 "attitude": spaces.Box(
@@ -220,7 +220,7 @@ class Environment(gymnasium.Env):
         height = raw_state[-1][-1]
 
         # combine everything
-        self.state["attitude"] = np.array([*lin_vel, height])
+        self.state["attitude"] = np.array([*lin_vel, height, *self.action])
 
         # grab the segmentation image
         rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids) * 1.0
