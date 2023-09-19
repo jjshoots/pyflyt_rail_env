@@ -21,6 +21,6 @@ while not (term or trunc):
     obs, rew, term, trunc, info = env.step(action)
     print(env.step_count)
 
-    # cv2.imshow("something", obs["seg_img"].astype(np.uint8) * 255)
+    cv2.imshow("something", obs["seg_img"][..., 0].astype(np.uint8) * 255)
     # cv2.imshow("something", obs["rgba_img"])
-    # cv2.waitKey(1)
+    cv2.waitKey(1)
