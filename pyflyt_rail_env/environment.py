@@ -234,17 +234,6 @@ class Environment(gymnasium.Env):
         # pepper = np.random.random(size=total_seg_img.shape) > 0.95
         # self.state["seg_img"] = (total_seg_img | salt) & ~pepper
 
-        # if self.step_count > 10:
-        #     import matplotlib.pyplot as plt
-        #     import matplotlib
-        #     try:
-        #         matplotlib.use("TKAgg")
-        #     except Exception as e:
-        #         pass
-        #     plt.imshow(self.state["seg_img"][..., 0])
-        #     plt.show()
-        #     exit()
-
     def compute_track_state(self):
         """
         This returns the position of the track relative to the drone as a [pos, orn] 2 value array.
