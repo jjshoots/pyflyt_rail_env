@@ -8,8 +8,8 @@ import random
 import gymnasium
 import numpy as np
 from gymnasium import spaces
-from PyFlyt.core.aviary import Aviary
 from PyFlyt.core import obj_collision, obj_visual
+from PyFlyt.core.aviary import Aviary
 
 from .MultiRailList import Rail
 
@@ -32,8 +32,8 @@ class Environment(gymnasium.Env):
         max_velocity: float = 3.0,
         max_yaw_rate: float = np.pi,
         corridor_height: float = 5.0,
-        corridor_width: float = 5.0,
-        corridor_max_angle: float = np.pi / 4.0,
+        corridor_width: float = 7.0,
+        corridor_max_angle: float = np.pi / 2.0,
         cam_resolution: tuple[int, int] = (64, 64),
         cam_FOV_degrees: int = 145,
         cam_angle_degrees: int = 0,
@@ -257,10 +257,6 @@ class Environment(gymnasium.Env):
     def compute_term_trunc_reward(self):
         """compute_term_trunc_reward."""
 
-        # penalty for making big velocity changes
-        action_penalty = np.linalg.norm(self.previous_action[1:] - self.action[1:])
-        action_penalty *= 0.3
-
         # drift penalty
         drift_penalty = self.track_state[0] ** 2
         drift_penalty *= 3.0
@@ -275,27 +271,26 @@ class Environment(gymnasium.Env):
 
         # collision penalty
         collision = np.any(self.aviary.contact_array)
-        collision_penalty = 1000.0 * collision
+        collision_penalty = 500.0 * collision
 
         # target loss penalty
         target_loss = np.abs(self.track_state[0]) > self.corridor_width
         target_loss |= np.abs(self.track_state[1]) > self.corridor_max_angle
-        target_loss_penalty = 1000.0 * target_loss
+        target_loss_penalty = 500.0 * target_loss
 
         # too low
         too_low = self.drone.state[-1][-1] < 0.5
-        too_low_penalty = 1000.0 * too_low
+        too_low_penalty = 500.0 * too_low
 
         # terminate run penalty
         stop_run = self.action[0] < 0.5
         stop_run &= np.linalg.norm(self.drone.state[-2]) < 1.0
-        stop_run_penalty = 0.0 * stop_run
+        stop_run_penalty = 100.0 * stop_run
 
         # sum up all rewards
         self.reward += 10.0
         self.reward -= (
-            + action_penalty
-            + drift_penalty
+            +drift_penalty
             + yaw_penalty
             + height_penalty
             + collision_penalty
@@ -325,7 +320,8 @@ class Environment(gymnasium.Env):
         """Computes the setpoint to give the drone given the agent's action.
 
         Args:
-            action (np.ndarray): action
+            action (np.ndarray):
+                - [stop/go, drift_rate, yaw_rate, climb_rate]
 
         Returns:
             tuple[np.ndarray, bool]: the setpoint and whether to terminate the process
@@ -384,8 +380,8 @@ class Environment(gymnasium.Env):
             return
 
         for _ in range(1):
-            # random chance that an obstacle will appear
-            if not random.getrandbits:
+            # 20% chance that an obstacle will appear
+            if np.random.randint(5) < 4:
                 continue
 
             # random chance between box and arch
