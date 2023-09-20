@@ -27,7 +27,7 @@ class Environment(gymnasium.Env):
         agent_hz: int = 10,
         render_mode: None | str = None,
         spawn_height: float = 1.5,
-        target_height: float = 1.0,
+        target_height: float = 1.5,
         target_velocity: float = 1.0,
         max_velocity: float = 2.0,
         max_yaw_rate: float = 1.5,
@@ -172,7 +172,7 @@ class Environment(gymnasium.Env):
 
         # randomly jitter the height of the rail
         # rail_height = (np.random.rand(1) * 0.25).item()
-        start_pos = np.array([0, 0, -0.2])
+        start_pos = np.array([0, 0, -0.14])
 
         # apply a random rotation to the rail
         rail_rotation = ((np.random.rand(1) - 0.5) * np.pi * 0.25).item()
@@ -227,13 +227,12 @@ class Environment(gymnasium.Env):
         rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids)
         obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids)
         total_seg_img = np.concatenate([rail_seg, obstacle_seg], axis=-1)
+        self.state["seg_img"] = total_seg_img
 
         # add 0.1% salt and 5% pepper noise, all boolean dtype
-        salt = np.random.random(size=total_seg_img.shape) > 0.999
-        pepper = np.random.random(size=total_seg_img.shape) > 0.95
-
-        # get the final image as a float
-        self.state["seg_img"] = (total_seg_img | salt) & ~pepper
+        # salt = np.random.random(size=total_seg_img.shape) > 0.999
+        # pepper = np.random.random(size=total_seg_img.shape) > 0.95
+        # self.state["seg_img"] = (total_seg_img | salt) & ~pepper
 
         # if self.step_count > 10:
         #     import matplotlib.pyplot as plt

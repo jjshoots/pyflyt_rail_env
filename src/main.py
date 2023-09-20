@@ -3,8 +3,8 @@ import numpy as np
 
 from pyflyt_rail_env import Environment
 
-# env = Environment(render_mode="human")
-env = Environment(render_mode=None)
+env = Environment(render_mode="human")
+# env = Environment(render_mode=None)
 
 obs, _ = env.reset()
 term = False
@@ -13,10 +13,10 @@ action = np.zeros(*env.action_space.shape)
 
 while not (term or trunc):
     track_position = env.track_state
-    action[0] = 1.0
+    action[0] = env.target_velocity
     action[1] = track_position[0] * 1.0
     action[2] = track_position[1] * 1.0
-    action[3] = 1.0 - env.drone.state[-1][-1]
+    action[3] = env.target_height - env.drone.state[-1][-1]
 
     obs, rew, term, trunc, info = env.step(action)
     print(info)
