@@ -28,9 +28,9 @@ class Environment(gymnasium.Env):
         render_mode: None | str = None,
         spawn_height: float = 1.5,
         target_height: float = 1.0,
-        target_velocity: float = 3.0,
-        max_velocity: float = 3.0,
-        max_yaw_rate: float = np.pi,
+        target_velocity: float = 1.0,
+        max_velocity: float = 2.0,
+        max_yaw_rate: float = 1.5,
         corridor_height: float = 5.0,
         corridor_width: float = 7.0,
         corridor_max_angle: float = np.pi / 2.0,
@@ -223,10 +223,17 @@ class Environment(gymnasium.Env):
         # combine everything
         self.state["attitude"] = np.array([*lin_vel, height, *self.action])
 
-        # grab the segmentation image
-        rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids) * 1.0
-        obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids) * 1.0
-        self.state["seg_img"] = np.concatenate([rail_seg, obstacle_seg], axis=-1)
+        # grab the segmentation image, all boolean dtype
+        rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids)
+        obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids)
+        total_seg_img = np.concatenate([rail_seg, obstacle_seg], axis=-1)
+
+        # add 0.1% salt and 5% pepper noise, all boolean dtype
+        salt = np.random.random(size=total_seg_img.shape) > 0.999
+        pepper = np.random.random(size=total_seg_img.shape) > 0.95
+
+        # get the final image as a float
+        self.state["seg_img"] = (total_seg_img | salt) & ~pepper
 
         # if self.step_count > 10:
         #     import matplotlib.pyplot as plt
@@ -381,7 +388,7 @@ class Environment(gymnasium.Env):
 
         for _ in range(1):
             # 20% chance that an obstacle will appear
-            if np.random.randint(5) < 4:
+            if np.random.random() < 0.8:
                 continue
 
             # random chance between box and arch
