@@ -354,9 +354,8 @@ class Environment(gymnasium.Env):
             self.compute_term_trunc_reward()
 
         # spawn in some obstacles
-        if False:
-            self.spawn_obstacle()
-            self.aviary.register_all_new_bodies()
+        self.spawn_obstacle()
+        self.aviary.register_all_new_bodies()
 
         # increment step count
         self.step_count += 1
@@ -364,6 +363,7 @@ class Environment(gymnasium.Env):
         return self.state, self.reward, self.termination, self.truncation, self.infos
 
     def spawn_obstacle(self):
+        return
         # handle the rail bounds
         spawn_direction = self.rail.handle_rail_bounds(self.drone.state[-1])
 
