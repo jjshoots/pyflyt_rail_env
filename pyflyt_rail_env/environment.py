@@ -26,10 +26,8 @@ class Environment(gymnasium.Env):
         max_duration_seconds: int = 60,
         agent_hz: int = 10,
         render_mode: None | str = None,
-        spawn_height: float = 1.5,
         target_height: float = 1.5,
         target_velocity: float = 1.0,
-        max_velocity: float = 2.0,
         max_yaw_rate: float = 1.5,
         corridor_height: float = 5.0,
         corridor_width: float = 7.0,
@@ -44,10 +42,8 @@ class Environment(gymnasium.Env):
             max_duration_seconds (int): max_duration_seconds
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
-            spawn_height (float): spawn_height
             target_height (float): target_height
             target_velocity (float): target_velocity
-            max_velocity (float): max_velocity
             max_yaw_rate (float): max_yaw_rate
             corridor_height (float): corridor_height
             corridor_width (float): corridor_width
@@ -72,8 +68,8 @@ class Environment(gymnasium.Env):
         """GYMNASIUM STUFF"""
         # action space
         self.action_space = spaces.Box(
-            low=np.array([-max_velocity, -max_velocity, -max_yaw_rate, -max_velocity]),
-            high=np.array([max_velocity, max_velocity, max_yaw_rate, max_velocity]),
+            low=np.array([-1.0, -max_yaw_rate]),
+            high=np.array([1.0, max_yaw_rate]),
             dtype=np.float64,
         )
 
@@ -91,7 +87,6 @@ class Environment(gymnasium.Env):
         )
 
         """ ENVIRONMENT CONSTANTS """
-        self.spawn_height = spawn_height
         self.target_height = target_height
         self.target_velocity = target_velocity
         self.corridor_height = corridor_height
@@ -150,9 +145,10 @@ class Environment(gymnasium.Env):
         drone_options["use_camera"] = True
         drone_options["use_gimbal"] = True
         drone_options["camera_resolution"] = self.cam_resolution
-        drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees
-        drone_options["camera_angle_degrees"] = -self.cam_angle_degrees
-        start_pos = np.array([[3.0, 0.0, self.spawn_height]])
+        drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees + np.random.randint(-15, 15)
+        drone_options["camera_angle_degrees"] = -self.cam_angle_degrees + np.random.randint(-15, 15)
+        self.flight_height = self.target_height + (np.random.random() - 0.5)
+        start_pos = np.array([[3.0, 0.0, self.flight_height]])
         start_orn = np.array([[0.0, 0.0, 0.0]])
         self.aviary = Aviary(
             start_pos=start_pos,
@@ -260,10 +256,6 @@ class Environment(gymnasium.Env):
         yaw_penalty = self.track_state[1] ** 2
         yaw_penalty *= 3.0
 
-        # height penalty
-        height_penalty = (self.drone.state[-1][-1] - self.target_height) ** 2
-        height_penalty *= 3.0
-
         # collision penalty
         collision = np.any(self.aviary.contact_array)
         collision_penalty = 500.0 * collision
@@ -316,19 +308,24 @@ class Environment(gymnasium.Env):
 
         Args:
             action (np.ndarray):
-                - [stop/go, drift_rate, yaw_rate, climb_rate]
+                - [stop/go, yaw_rate]
 
         Returns:
             tuple[np.ndarray, bool]: the setpoint and whether to terminate the process
         """
-        setpoint = action.copy()
+        setpoint = np.zeros((4,), dtype=np.float64)
 
         # override the forward function with a boolean
         setpoint[0] = (action[0] > 0.5) * self.target_velocity
 
-        # don't go higher if we're at the ceiling
-        if self.drone.state[-1][-1] >= self.corridor_height:
-            setpoint[2] = np.clip(setpoint[2], a_min=None, a_max=0.0)
+        # don't have sideways drift
+        setpoint[1] = 0.0
+
+        # passthrough yaw
+        setpoint[2] = action[-1]
+
+        # maintain constant height
+        setpoint[3] = (self.flight_height - self.drone.state[-1][-1])
 
         return setpoint
 
