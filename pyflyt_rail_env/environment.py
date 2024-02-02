@@ -148,8 +148,8 @@ class Environment(gymnasium.Env):
         drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees + np.random.randint(-15, 15)
         drone_options["camera_angle_degrees"] = -self.cam_angle_degrees + np.random.randint(-15, 15)
         self.flight_height = self.target_height + (np.random.random() - 0.5)
-        start_pos = np.array([[3.0, 0.0, self.flight_height]])
-        start_orn = np.array([[0.0, 0.0, 0.0]])
+        start_pos = np.array([[3.0, np.random.randn(), self.flight_height]])
+        start_orn = np.array([[0.0, 0.0, np.random.randn()]])
         self.aviary = Aviary(
             start_pos=start_pos,
             start_orn=start_orn,
