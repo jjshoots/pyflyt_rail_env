@@ -279,7 +279,6 @@ class Environment(gymnasium.Env):
         self.reward -= (
             +drift_penalty
             + yaw_penalty
-            + height_penalty
             + collision_penalty
             + target_loss_penalty
             + too_low_penalty
@@ -355,8 +354,9 @@ class Environment(gymnasium.Env):
             self.compute_term_trunc_reward()
 
         # spawn in some obstacles
-        self.spawn_obstacle()
-        self.aviary.register_all_new_bodies()
+        if False:
+            self.spawn_obstacle()
+            self.aviary.register_all_new_bodies()
 
         # increment step count
         self.step_count += 1
