@@ -363,7 +363,6 @@ class Environment(gymnasium.Env):
         return self.state, self.reward, self.termination, self.truncation, self.infos
 
     def spawn_obstacle(self):
-        return
         # handle the rail bounds
         spawn_direction = self.rail.handle_rail_bounds(self.drone.state[-1])
 
@@ -372,6 +371,7 @@ class Environment(gymnasium.Env):
             return
 
         for _ in range(1):
+            continue
             # 20% chance that an obstacle will appear
             if np.random.random() < 0.8:
                 continue
