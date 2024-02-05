@@ -68,8 +68,8 @@ class Environment(gymnasium.Env):
         """GYMNASIUM STUFF"""
         # action space
         self.action_space = spaces.Box(
-            low=np.array([-1.0, -max_yaw_rate]),
-            high=np.array([1.0, max_yaw_rate]),
+            low=np.array([-max_yaw_rate]),
+            high=np.array([max_yaw_rate]),
             dtype=np.float64,
         )
 
@@ -145,9 +145,9 @@ class Environment(gymnasium.Env):
         drone_options["use_camera"] = True
         drone_options["use_gimbal"] = True
         drone_options["camera_resolution"] = self.cam_resolution
-        drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees + np.random.randint(-15, 15)
-        drone_options["camera_angle_degrees"] = -self.cam_angle_degrees + np.random.randint(-15, 15)
-        self.flight_height = self.target_height + (np.random.random() - 0.5)
+        drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees + np.random.randint(-20, 20)
+        drone_options["camera_angle_degrees"] = -self.cam_angle_degrees + np.random.randint(-20, 20)
+        self.flight_height = self.target_height + ((np.random.random() - 0.5) * 2.0)
         start_pos = np.array([[3.0, np.random.randn(), self.flight_height]])
         start_orn = np.array([[0.0, 0.0, np.random.randn()]])
         self.aviary = Aviary(
@@ -265,15 +265,6 @@ class Environment(gymnasium.Env):
         target_loss |= np.abs(self.track_state[1]) > self.corridor_max_angle
         target_loss_penalty = 500.0 * target_loss
 
-        # too low
-        too_low = self.drone.state[-1][-1] < 0.5
-        too_low_penalty = 500.0 * too_low
-
-        # terminate run penalty
-        stop_run = self.action[0] < 0.5
-        stop_run &= np.linalg.norm(self.drone.state[-2]) < 1.0
-        stop_run_penalty = 100.0 * stop_run
-
         # sum up all rewards
         self.reward += 10.0
         self.reward -= (
@@ -281,8 +272,6 @@ class Environment(gymnasium.Env):
             + yaw_penalty
             + collision_penalty
             + target_loss_penalty
-            + too_low_penalty
-            + stop_run_penalty
         )
 
         # handle termination truncation
@@ -293,14 +282,10 @@ class Environment(gymnasium.Env):
         # - drone slowed to a close
         self.termination |= target_loss
         self.termination |= collision
-        self.termination |= too_low
-        self.termination |= stop_run
         self.truncation |= self.step_count > self.max_steps
 
         self.infos["target_loss"] = target_loss
         self.infos["collision"] = collision
-        self.infos["run_stopped"] = stop_run
-        self.infos["too_low"] = too_low
 
     def compute_setpoint(self, action: np.ndarray) -> np.ndarray:
         """Computes the setpoint to give the drone given the agent's action.
@@ -315,7 +300,7 @@ class Environment(gymnasium.Env):
         setpoint = np.zeros((4,), dtype=np.float64)
 
         # override the forward function with a boolean
-        setpoint[0] = (action[0] > 0.5) * self.target_velocity
+        setpoint[0] = self.target_velocity
 
         # don't have sideways drift
         setpoint[1] = 0.0
