@@ -26,10 +26,9 @@ class Environment(gymnasium.Env):
         max_duration_seconds: int = 60,
         agent_hz: int = 10,
         render_mode: None | str = None,
-        target_height: float = 1.5,
-        target_velocity: float = 1.0,
-        max_yaw_rate: float = 1.5,
-        corridor_height: float = 5.0,
+        approx_height: float = 1.5,
+        approx_velocity: float = 1.0,
+        approx_yaw_rate: float = 1.5,
         corridor_width: float = 7.0,
         corridor_max_angle: float = np.pi / 2.0,
         cam_resolution: tuple[int, int] = (64, 64),
@@ -42,10 +41,9 @@ class Environment(gymnasium.Env):
             max_duration_seconds (int): max_duration_seconds
             agent_hz (int): agent_hz
             render_mode (None | str): render_mode
-            target_height (float): target_height
-            target_velocity (float): target_velocity
-            max_yaw_rate (float): max_yaw_rate
-            corridor_height (float): corridor_height
+            approx_height (float): approx_height
+            approx_velocity (float): approx_velocity
+            approx_yaw_rate (float): approx_yaw_rate
             corridor_width (float): corridor_width
             corridor_max_angle (float): corridor_max_angle
             cam_resolution (tuple[int, int]): cam_resolution
@@ -68,8 +66,8 @@ class Environment(gymnasium.Env):
         """GYMNASIUM STUFF"""
         # action space
         self.action_space = spaces.Box(
-            low=np.array([-max_yaw_rate]),
-            high=np.array([max_yaw_rate]),
+            low=np.array([-1.0]),
+            high=np.array([1.0]),
             dtype=np.float64,
         )
 
@@ -87,9 +85,9 @@ class Environment(gymnasium.Env):
         )
 
         """ ENVIRONMENT CONSTANTS """
-        self.target_height = target_height
-        self.target_velocity = target_velocity
-        self.corridor_height = corridor_height
+        self.approx_height = approx_height
+        self.approx_velocity = approx_velocity
+        self.approx_yaw_rate = approx_yaw_rate
         self.corridor_width = corridor_width
         self.corridor_max_angle = corridor_max_angle
         self.cam_resolution = cam_resolution
@@ -147,7 +145,9 @@ class Environment(gymnasium.Env):
         drone_options["camera_resolution"] = self.cam_resolution
         drone_options["camera_FOV_degrees"] = self.cam_FOV_degrees + np.random.randint(-20, 20)
         drone_options["camera_angle_degrees"] = -self.cam_angle_degrees + np.random.randint(-20, 20)
-        self.flight_height = self.target_height + ((np.random.random() - 0.5) * 2.0)
+        self.flight_height = self.approx_height * (np.random.random() + 0.5)
+        self.flight_velocity = self.approx_velocity + (np.random.random() + 0.5)
+        self.flight_yaw_rate = self.approx_yaw_rate + (np.random.random() + 0.5)
         start_pos = np.array([[3.0, np.random.randn(), self.flight_height]])
         start_orn = np.array([[0.0, 0.0, np.random.randn()]])
         self.aviary = Aviary(
@@ -294,16 +294,10 @@ class Environment(gymnasium.Env):
         """
         setpoint = np.zeros((4,), dtype=np.float64)
 
-        # override the forward function with a boolean
-        setpoint[0] = self.target_velocity
-
-        # don't have sideways drift
+        # forward, right drift, yaw, climb_rate
+        setpoint[0] = self.flight_velocity
         setpoint[1] = 0.0
-
-        # passthrough yaw
-        setpoint[2] = action[-1]
-
-        # maintain constant height
+        setpoint[2] = action[-1] * self.flight_yaw_rate
         setpoint[3] = (self.flight_height - self.drone.state[-1][-1])
 
         return setpoint
