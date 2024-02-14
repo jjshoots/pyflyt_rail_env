@@ -81,7 +81,7 @@ class Environment(gymnasium.Env):
                     low=-np.inf, high=np.inf, shape=(attitude_shape,), dtype=np.float64
                 ),
                 "seg_img": spaces.Box(
-                    low=0.0, high=1.0, shape=(*cam_resolution, 2), dtype=np.uint8
+                    low=0.0, high=1.0, shape=(*cam_resolution, 1), dtype=np.uint8
                 ),
             }
         )
@@ -204,13 +204,7 @@ class Environment(gymnasium.Env):
             self.aviary.disconnect()
 
     def compute_state(self):
-        """Computes the state of the current timestep.
-
-        This returns the observation.
-        - lin_vel (vector of 3 values)
-        - height (one scalar)
-        - previous_action (vector of 4 values)
-        """
+        """Computes the state of the current timestep."""
         # get the relevant states
         raw_state = self.aviary.state(0)
         lin_vel = raw_state[2]
@@ -220,10 +214,7 @@ class Environment(gymnasium.Env):
         self.state["attitude"] = np.array([*lin_vel, height, *self.action])
 
         # grab the segmentation image, all boolean dtype
-        rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids)
-        obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids)
-        total_seg_img = np.concatenate([rail_seg, obstacle_seg], axis=-1)
-        self.state["seg_img"] = total_seg_img
+        self.state["seg_img"] = np.isin(self.drone.segImg, self.rail.rail_ids)
 
         # add 0.1% salt and 5% pepper noise, all boolean dtype
         # salt = np.random.random(size=total_seg_img.shape) > 0.999
