@@ -214,6 +214,10 @@ class Environment(gymnasium.Env):
         self.state["attitude"] = np.array([*lin_vel, height, *self.action])
 
         # grab the segmentation image, all boolean dtype
+        # rail_seg = np.isin(self.drone.segImg, self.rail.rail_ids)
+        # obstacle_seg = np.isin(self.drone.segImg, self.rail.obstacle_ids)
+        # total_seg_img = np.concatenate([rail_seg], axis=-1)
+        # self.state["seg_img"] = total_seg_img
         self.state["seg_img"] = np.isin(self.drone.segImg, self.rail.rail_ids)
 
         # add 0.1% salt and 5% pepper noise, all boolean dtype
